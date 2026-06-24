@@ -1,0 +1,61 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6D5BFF"/>
+      <stop offset="1" stop-color="#5B4BF5"/>
+    </linearGradient>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F1ECFB"/>
+    </linearGradient>
+  </defs>
+
+  <!-- full-bleed background (OS rounds it) -->
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <!-- soft glow behind dragon -->
+  <circle cx="256" cy="232" r="150" fill="#FFFFFF" opacity="0.07"/>
+
+  <!-- wings -->
+  <g fill="#8E7BFF">
+    <path d="M168 196 Q116 150 96 196 Q124 210 156 228 Z"/>
+    <path d="M344 196 Q396 150 416 196 Q388 210 356 228 Z"/>
+  </g>
+
+  <!-- horns -->
+  <path d="M206 150 L196 96 L236 140 Z" fill="#FFD658"/>
+  <path d="M306 150 L316 96 L276 140 Z" fill="#FFD658"/>
+
+  <!-- dragon head/body -->
+  <ellipse cx="256" cy="236" rx="104" ry="108" fill="#F7EBCF"/>
+  <ellipse cx="256" cy="268" rx="58" ry="62" fill="#FFF8E6"/>
+
+  <!-- eyes -->
+  <circle cx="218" cy="222" r="17" fill="#2B2740"/>
+  <circle cx="223" cy="216" r="5.5" fill="#fff"/>
+  <circle cx="294" cy="222" r="17" fill="#2B2740"/>
+  <circle cx="299" cy="216" r="5.5" fill="#fff"/>
+  <!-- blush -->
+  <circle cx="186" cy="252" r="13" fill="#FF9AA2" opacity="0.55"/>
+  <circle cx="326" cy="252" r="13" fill="#FF9AA2" opacity="0.55"/>
+  <!-- smile -->
+  <path d="M236 256 Q256 274 276 256" stroke="#2B2740" stroke-width="7" fill="none" stroke-linecap="round"/>
+
+  <!-- open book in front, covering lower body -->
+  <g>
+    <!-- cover rim -->
+    <path d="M256 332 C198 300 150 300 104 312 L104 430 C150 416 206 416 256 438 C306 416 362 416 408 430 L408 312 C362 300 314 300 256 332 Z" fill="#3F2FD0"/>
+    <!-- left page -->
+    <path d="M250 338 C206 314 162 314 118 320 L118 420 C162 412 212 414 250 432 Z" fill="url(#page)"/>
+    <!-- right page -->
+    <path d="M262 338 C306 314 350 314 394 320 L394 420 C350 412 300 414 262 432 Z" fill="url(#page)"/>
+    <!-- page lines -->
+    <path d="M150 344 L222 350 M142 372 L222 376 M142 398 L222 400" stroke="#C9BEEC" stroke-width="5" stroke-linecap="round"/>
+    <path d="M362 344 L290 350 M370 372 L290 376 M370 398 L290 400" stroke="#C9BEEC" stroke-width="5" stroke-linecap="round"/>
+    <!-- spine -->
+    <path d="M256 338 L256 432" stroke="#3F2FD0" stroke-width="7" stroke-linecap="round"/>
+  </g>
+
+  <!-- sparkle -->
+  <path d="M392 120 l6 16 l16 6 l-16 6 l-6 16 l-6 -16 l-16 -6 l16 -6 Z" fill="#FFD658"/>
+</svg>
