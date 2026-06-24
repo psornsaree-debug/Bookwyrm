@@ -5,6 +5,11 @@ import {
   Cloud, Download, Upload, ClipboardCopy, CheckCircle2, BarChart3, LayoutGrid, PawPrint,
   Fingerprint, LogOut, UserPlus, Lock, ArrowLeft,
 } from "lucide-react";
+import { auth, db } from "./firebase";
+import {
+  onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut,
+} from "firebase/auth";
+import { collection, doc, onSnapshot, setDoc, deleteDoc } from "firebase/firestore";
 
 /* ------------------------------------------------------------------ */
 /*  storage wrapper — uses persistent window.storage, falls back to RAM */
@@ -172,136 +177,50 @@ async function bioVerify(credId) {
   return true;
 }
 
-function LoginScreen({ profiles, onUnlock, onCreate, onDelete, flash }) {
-  const [mode, setMode] = useState(profiles.length ? "pick" : "create");
-  const [sel, setSel] = useState(null);
-  const [pin, setPin] = useState("");
+function AuthScreen() {
+  const [mode, setMode] = useState("in"); // "in" = sign in, "up" = sign up
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
-  const [delId, setDelId] = useState(null);
-  // create form
-  const [name, setName] = useState("");
-  const [avatar, setAvatar] = useState("🐲");
-  const [usePin, setUsePin] = useState(false);
-  const [newPin, setNewPin] = useState("");
-  const [useBio, setUseBio] = useState(false);
+  const [err, setErr] = useState("");
 
-  const locked = (p) => !!(p.pin || p.passkey);
-
-  function pick(p) {
-    if (!locked(p)) { onUnlock(p); return; }
-    setSel(p); setPin(""); setMode("unlock");
-  }
-  async function tryPin() {
-    if (!sel) return;
-    const h = await hashPin(pin);
-    if (h === sel.pin) onUnlock(sel);
-    else { flash("PIN ไม่ถูกต้อง", "warn"); setPin(""); }
-  }
-  async function tryBio() {
+  async function submit() {
+    setErr("");
+    if (!email.trim() || pw.length < 6) { setErr("ใส่อีเมล และรหัสผ่านอย่างน้อย 6 ตัว"); return; }
     setBusy(true);
-    try { await bioVerify(sel.credId); onUnlock(sel); }
-    catch (e) { flash("สแกนไม่สำเร็จ หรืออุปกรณ์ไม่รองรับ ลองใช้ PIN", "warn"); }
-    finally { setBusy(false); }
-  }
-  async function create() {
-    if (!name.trim()) { flash("ใส่ชื่อก่อนนะ", "warn"); return; }
-    if (usePin && newPin.length !== 4) { flash("PIN ต้องมี 4 หลัก", "warn"); return; }
-    setBusy(true);
-    const id = uid();
-    let passkey = false, credId = null;
-    if (useBio) {
-      try { credId = await bioRegister(id, name.trim()); passkey = true; }
-      catch (e) { flash("อุปกรณ์นี้ยังไม่รองรับสแกนนิ้ว ข้ามไปก่อน", "warn"); }
-    }
-    const pinHash = usePin ? await hashPin(newPin) : null;
-    await onCreate({ id, name: name.trim(), avatar, pin: pinHash, passkey, credId });
-    setBusy(false);
+    try {
+      if (mode === "up") await createUserWithEmailAndPassword(auth, email.trim(), pw);
+      else await signInWithEmailAndPassword(auth, email.trim(), pw);
+      // onAuthStateChanged in App will switch the screen automatically
+    } catch (e) {
+      const m = (e && e.code) || "";
+      setErr(
+        m.includes("invalid-credential") || m.includes("wrong-password") || m.includes("user-not-found") ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง" :
+        m.includes("email-already-in-use") ? "อีเมลนี้มีบัญชีอยู่แล้ว ลองเข้าสู่ระบบ" :
+        m.includes("invalid-email") ? "รูปแบบอีเมลไม่ถูกต้อง" :
+        m.includes("weak-password") ? "รหัสผ่านอ่อนเกินไป (อย่างน้อย 6 ตัว)" :
+        m.includes("network") ? "เชื่อมต่ออินเทอร์เน็ตไม่ได้" :
+        "เกิดข้อผิดพลาด ลองใหม่อีกครั้ง"
+      );
+    } finally { setBusy(false); }
   }
 
   return (
     <div className="login">
       <div className="login-card">
-        {mode === "pick" && (
-          <>
-            <div className="login-logo"><BookMarked size={22} /> ชั้นหนังสือ</div>
-            <div className="login-sub">เลือกผู้ใช้เพื่อเข้าสู่ชั้นหนังสือ</div>
-            <div className="prof-list">
-              {profiles.map((p) => (
-                <div className="prof" key={p.id} onClick={() => pick(p)}>
-                  <span className="ava">{p.avatar}</span>
-                  <div>
-                    <b>{p.name}</b>
-                    <small>{locked(p) ? <><Lock size={11} /> ล็อกอยู่</> : "ไม่ได้ล็อก"}</small>
-                  </div>
-                  {delId === p.id ? (
-                    <button className="prof-del" style={{ color: "#EF4444", fontWeight: 700, fontSize: 12 }}
-                      onClick={(e) => { e.stopPropagation(); onDelete(p.id); setDelId(null); }}>ลบ?</button>
-                  ) : (
-                    <button className="prof-del" onClick={(e) => { e.stopPropagation(); setDelId(p.id); }}><Trash2 size={16} /></button>
-                  )}
-                </div>
-              ))}
-            </div>
-            <button className="login-addbtn" onClick={() => { setMode("create"); setName(""); setAvatar("🐲"); setUsePin(false); setNewPin(""); setUseBio(false); }}>
-              <UserPlus size={17} /> เพิ่มผู้ใช้ใหม่
-            </button>
-          </>
-        )}
-
-        {mode === "unlock" && sel && (
-          <>
-            {profiles.length > 0 && <button className="login-back" onClick={() => setMode("pick")}><ArrowLeft size={18} /></button>}
-            <span className="ava" style={{ fontSize: 46 }}>{sel.avatar}</span>
-            <div className="login-logo" style={{ marginTop: 6 }}>{sel.name}</div>
-            <div className="login-sub">ปลดล็อกเพื่อเข้าใช้งาน</div>
-            {sel.passkey && (
-              <button className="bio-btn" onClick={tryBio} disabled={busy}>
-                {busy ? <Loader2 className="spin" size={26} /> : <Fingerprint size={30} />}
-                แตะเพื่อสแกนนิ้ว / Face ID
-              </button>
-            )}
-            {sel.pin && (
-              <>
-                <input className="login-input pin-input" value={pin} inputMode="numeric" maxLength={4} placeholder="• • • •"
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} />
-                <button className="btn-primary big" disabled={pin.length !== 4} onClick={tryPin}>ปลดล็อก</button>
-              </>
-            )}
-          </>
-        )}
-
-        {mode === "create" && (
-          <>
-            {profiles.length > 0 && <button className="login-back" onClick={() => setMode("pick")}><ArrowLeft size={18} /></button>}
-            <div className="login-logo"><UserPlus size={20} /> สร้างโปรไฟล์</div>
-            <div className="login-sub">แต่ละคนจะมีชั้นหนังสือและมังกรของตัวเอง</div>
-            <div className="ava-grid">
-              {AVATARS.map((a) => (
-                <button key={a} className={"ava-opt" + (avatar === a ? " on" : "")} onClick={() => setAvatar(a)}>{a}</button>
-              ))}
-            </div>
-            <input className="login-input" value={name} placeholder="ชื่อของคุณ" onChange={(e) => setName(e.target.value)} />
-            <div className={"login-toggle" + (usePin ? " on" : "")} onClick={() => setUsePin((v) => !v)}>
-              <span><Lock size={15} style={{ verticalAlign: "-2px" }} /> ตั้ง PIN 4 หลัก</span>
-              <span>{usePin ? "เปิด" : "ปิด"}</span>
-            </div>
-            {usePin && (
-              <input className="login-input pin-input" value={newPin} inputMode="numeric" maxLength={4} placeholder="• • • •"
-                onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))} />
-            )}
-            {BIO_OK ? (
-              <div className={"login-toggle" + (useBio ? " on" : "")} onClick={() => setUseBio((v) => !v)}>
-                <span><Fingerprint size={15} style={{ verticalAlign: "-2px" }} /> ใช้ลายนิ้วมือ / Face ID</span>
-                <span>{useBio ? "เปิด" : "ปิด"}</span>
-              </div>
-            ) : (
-              <p className="hint" style={{ color: "var(--ink-soft)", margin: "0 0 12px" }}>* อุปกรณ์/เบราว์เซอร์นี้ยังไม่รองรับสแกนนิ้ว</p>
-            )}
-            <button className="btn-primary big" disabled={busy} onClick={create}>
-              {busy ? <Loader2 className="spin" size={18} /> : <Check size={18} />} สร้างและเข้าใช้งาน
-            </button>
-          </>
-        )}
+        <div className="login-logo"><BookMarked size={22} /> ชั้นหนังสือ</div>
+        <div className="login-sub">{mode === "up" ? "สร้างบัญชีเพื่อซิงก์ข้อมูลข้ามทุกเครื่อง" : "เข้าสู่ระบบเพื่อเปิดชั้นหนังสือของคุณ"}</div>
+        <input className="login-input" type="email" value={email} placeholder="อีเมล" onChange={(e) => setEmail(e.target.value)} />
+        <input className="login-input" type="password" value={pw} placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)"
+          onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        {err && <p className="hint" style={{ color: "var(--amber)", margin: "-4px 0 12px" }}>{err}</p>}
+        <button className="btn-primary big" disabled={busy} onClick={submit}>
+          {busy ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
+          {mode === "up" ? "สมัครและเข้าใช้งาน" : "เข้าสู่ระบบ"}
+        </button>
+        <button className="login-addbtn" style={{ marginTop: 12 }} onClick={() => { setMode((m) => (m === "up" ? "in" : "up")); setErr(""); }}>
+          {mode === "up" ? "มีบัญชีอยู่แล้ว? เข้าสู่ระบบ" : "ยังไม่มีบัญชี? สมัครใหม่"}
+        </button>
       </div>
     </div>
   );
@@ -320,71 +239,64 @@ export default function App() {
   const [dataOpen, setDataOpen] = useState(false);
   const [tab, setTab] = useState("library");
   const [toast, setToast] = useState(null);
-  const [profiles, setProfiles] = useState(null);
-  const [session, setSession] = useState(null);
+  const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
   const isDesktop = useIsDesktop();
 
-  useEffect(() => {
-    (async () => {
-      let p = [];
-      try { const raw = await store.get("profiles"); if (raw) p = JSON.parse(raw); } catch (e) {}
-      setProfiles(p);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!session) return;
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      let lib = [];
-      try { const raw = await store.get("library:" + session.id); if (raw) lib = JSON.parse(raw); } catch (e) {}
-      if (alive) { setBooks(lib); setLoading(false); }
-    })();
-    return () => { alive = false; };
-  }, [session]);
+  // watch auth state
+  useEffect(() => onAuthStateChanged(auth, (u) => setUser(u || null)), []);
 
   const flash = (msg, type = "ok") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2600);
   };
 
-  async function persist(next) {
-    setBooks(next);
-    try { await store.set("library:" + session.id, JSON.stringify(next)); }
-    catch (e) { flash("พื้นที่เก็บข้อมูลเต็ม — ลองลดจำนวนรูปปกที่บันทึกดูนะ", "warn"); }
-  }
+  // live-subscribe to this user's books in Firestore (syncs across devices)
+  useEffect(() => {
+    if (!user) { setBooks([]); setLoading(false); return; }
+    setLoading(true);
+    const col = collection(db, "users", user.uid, "books");
+    const unsub = onSnapshot(col,
+      (snap) => {
+        const arr = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        arr.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+        setBooks(arr); setLoading(false);
+      },
+      () => { setLoading(false); flash("โหลดข้อมูลไม่สำเร็จ — เช็คอินเทอร์เน็ต/การตั้งค่า Firebase", "warn"); }
+    );
+    return unsub;
+  }, [user]);
 
-  async function saveProfiles(next) {
-    setProfiles(next);
-    try { await store.set("profiles", JSON.stringify(next)); } catch (e) {}
-  }
-  async function createProfile(p) {
-    const first = (profiles || []).length === 0;
-    await saveProfiles([...(profiles || []), p]);
-    if (first) {
-      try { const legacy = await store.get("library"); if (legacy) await store.set("library:" + p.id, legacy); } catch (e) {}
-    }
-    setSession(p);
-  }
-  function logout() { setSession(null); setBooks([]); setTab("library"); setQuery(""); setFilter("all"); }
-  async function deleteProfile(id) { await saveProfiles((profiles || []).filter((x) => x.id !== id)); }
+  // strip id + undefined fields (Firestore rejects undefined)
+  const clean = (o) => { const x = { ...o }; delete x.id; Object.keys(x).forEach((k) => x[k] === undefined && delete x[k]); return x; };
 
-  const addBook = (b) => { persist([{ ...b, id: uid(), addedAt: Date.now() }, ...books]); flash("เพิ่มเข้าคลังแล้ว 📚"); };
-  const updateBook = (id, patch) => persist(books.map((b) => (b.id === id ? { ...b, ...patch } : b)));
-  const deleteBook = (id) => { persist(books.filter((b) => b.id !== id)); setDetailId(null); flash("ลบออกจากคลังแล้ว"); };
-
-  const importBooks = (incoming) => {
-    const existing = new Set(books.map((b) => b.id));
-    const fresh = incoming
-      .filter((b) => b && b.title)
-      .map((b) => ({ ...b, id: b.id || uid() }))
-      .filter((b) => !existing.has(b.id));
-    if (fresh.length === 0) { flash("ไม่มีเล่มใหม่ให้เพิ่ม (อาจซ้ำกับที่มีอยู่)", "warn"); return; }
-    persist([...fresh, ...books]);
-    flash(`นำเข้า ${fresh.length} เล่มแล้ว`);
-    setDataOpen(false);
+  const addBook = async (b) => {
+    if (!user) return;
+    try { await setDoc(doc(db, "users", user.uid, "books", uid()), { ...clean(b), addedAt: Date.now() }); flash("เพิ่มเข้าคลังแล้ว 📚"); }
+    catch (e) { flash("บันทึกไม่สำเร็จ", "warn"); }
   };
+  const updateBook = async (id, patch) => {
+    if (!user) return;
+    try { await setDoc(doc(db, "users", user.uid, "books", id), clean(patch), { merge: true }); }
+    catch (e) { flash("บันทึกไม่สำเร็จ", "warn"); }
+  };
+  const deleteBook = async (id) => {
+    if (!user) return;
+    try { await deleteDoc(doc(db, "users", user.uid, "books", id)); setDetailId(null); flash("ลบออกจากคลังแล้ว"); }
+    catch (e) { flash("ลบไม่สำเร็จ", "warn"); }
+  };
+  const importBooks = async (incoming) => {
+    if (!user) return;
+    const existing = new Set(books.map((b) => b.id));
+    let n = 0;
+    for (const b of incoming.filter((x) => x && x.title)) {
+      const id = (b.id && !existing.has(b.id)) ? b.id : uid();
+      if (existing.has(id)) continue;
+      try { await setDoc(doc(db, "users", user.uid, "books", id), { ...clean(b), addedAt: b.addedAt || Date.now() }); existing.add(id); n++; } catch (e) {}
+    }
+    if (n === 0) flash("ไม่มีเล่มใหม่ให้เพิ่ม (อาจซ้ำกับที่มีอยู่)", "warn");
+    else { flash(`นำเข้า ${n} เล่มแล้ว`); setDataOpen(false); }
+  };
+  const logout = () => { signOut(auth); setTab("library"); setQuery(""); setFilter("all"); };
 
   const counts = useMemo(() => {
     const c = { all: books.length, unread: 0, reading: 0, done: 0 };
@@ -405,8 +317,8 @@ export default function App() {
   const toggleFilter = (k) => setFilter((f) => (f === k ? "all" : k));
   const title = tab === "stats" ? "มังกรของฉัน" : tab === "collection" ? "คอลเลกชัน" : "ชั้นหนังสือ";
   const NAV = [["library", Library, "คลัง"], ["collection", LayoutGrid, "คอลเลกชัน"], ["stats", PawPrint, "มังกร"]];
+  const avatarChar = user && user.email ? user.email[0].toUpperCase() : "?";
 
-  // ---- screen body, shared by both shells ----
   const libraryBody = (
     <>
       <div className="stat-strip">
@@ -458,18 +370,18 @@ export default function App() {
     <div className={"root " + (isDesktop ? "desktop" : "mobile")}>
       <style>{CSS}</style>
 
-      {profiles === null ? (
+      {user === undefined ? (
         <div className="splash"><Loader2 className="spin" size={28} /></div>
-      ) : !session ? (
-        <LoginScreen profiles={profiles} onUnlock={setSession} onCreate={createProfile} onDelete={deleteProfile} flash={flash} />
+      ) : !user ? (
+        <AuthScreen />
       ) : isDesktop ? (
         /* ---------- DESKTOP ---------- */
         <div className="dshell desktop">
           <aside className="sidebar">
             <div className="side-brand"><BookMarked size={22} /> ชั้นหนังสือ</div>
             <button className="side-profile" onClick={logout}>
-              <span className="ava">{session.avatar}</span>
-              <div><b>{session.name}</b><small>เปลี่ยนผู้ใช้</small></div>
+              <span className="acct-ava">{avatarChar}</span>
+              <div><b className="acct-name">{user.email}</b><small>ออกจากระบบ</small></div>
             </button>
             <nav className="side-nav">
               {NAV.map(([k, Icon, label]) => (
@@ -480,7 +392,7 @@ export default function App() {
             </nav>
             <button className="side-add" onClick={() => setAddOpen(true)}><Plus size={18} /> เพิ่มหนังสือ</button>
             <div className="side-foot">
-              <button className="side-link" onClick={() => setDataOpen(true)}><Cloud size={18} /> สำรอง & ย้ายข้อมูล</button>
+              <button className="side-link" onClick={() => setDataOpen(true)}><Cloud size={18} /> สำรอง & ตั้งค่า</button>
               <button className="side-link" onClick={logout}><LogOut size={18} /> ออกจากระบบ</button>
             </div>
           </aside>
@@ -495,8 +407,8 @@ export default function App() {
           <div className="appbar">
             <div className="brand"><BookMarked size={21} strokeWidth={2.2} /><span>{title}</span></div>
             <div className="hd-actions">
-              <button className="btn-icon ava-btn" onClick={logout} aria-label="เปลี่ยนผู้ใช้">{session.avatar}</button>
-              <button className="btn-icon" onClick={() => setDataOpen(true)} aria-label="สำรองข้อมูล"><Cloud size={19} /></button>
+              <button className="btn-icon ava-btn" onClick={logout} aria-label="ออกจากระบบ">{avatarChar}</button>
+              <button className="btn-icon" onClick={() => setDataOpen(true)} aria-label="สำรอง/ตั้งค่า"><Cloud size={19} /></button>
             </div>
           </div>
           <main className="screen">{body}</main>
@@ -509,13 +421,13 @@ export default function App() {
         </div>
       )}
 
-      {session && addOpen && (
+      {user && addOpen && (
         <AddSheet books={books} onClose={() => setAddOpen(false)} onSave={(b) => { addBook(b); setAddOpen(false); }} />
       )}
-      {session && detail && (
+      {user && detail && (
         <DetailSheet book={detail} onClose={() => setDetailId(null)} onUpdate={(patch) => updateBook(detail.id, patch)} onDelete={() => deleteBook(detail.id)} />
       )}
-      {session && dataOpen && (
+      {user && dataOpen && (
         <DataSheet books={books} onClose={() => setDataOpen(false)} onImport={importBooks} flash={flash} />
       )}
 
@@ -1572,6 +1484,10 @@ input{font-family:var(--sans)}
 .side-profile .ava{font-size:26px;line-height:1}
 .side-profile b{display:block;font-size:14px;font-weight:600;text-align:left}
 .side-profile small{font-size:11.5px;color:var(--ink-soft)}
+.acct-ava{width:30px;height:30px;border-radius:9px;background:var(--green-soft);color:var(--green);
+  display:grid;place-items:center;font-weight:700;font-size:15px;flex:none}
+.acct-name{display:block;font-size:13.5px;font-weight:600;text-align:left;max-width:150px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .side-nav{display:flex;flex-direction:column;gap:4px}
 .side-item{display:flex;align-items:center;gap:12px;border:none;background:none;cursor:pointer;
   padding:11px 13px;border-radius:12px;font-family:var(--sans);font-size:14.5px;font-weight:600;
