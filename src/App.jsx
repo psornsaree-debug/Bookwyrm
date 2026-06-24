@@ -3,7 +3,7 @@ import {
   Camera, Plus, Search, X, Check, BookOpen, Trash2, Loader2,
   Library, Sparkles, AlertTriangle, ChevronRight, Pencil, BookMarked,
   Cloud, Download, Upload, ClipboardCopy, CheckCircle2, BarChart3, LayoutGrid, PawPrint,
-  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft,
+  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags,
 } from "lucide-react";
 import { auth, db } from "./firebase";
 import {
@@ -113,11 +113,12 @@ function parseJson(text) {
 
 const CATS = ["มังงะ", "นิยาย", "ไลท์โนเวล", "การ์ตูน", "วรรณกรรม", "พัฒนาตัวเอง", "ธุรกิจ", "ความรู้"];
 
-function CategoryPicker({ value, set, commit }) {
+function CategoryPicker({ value, set, commit, cats }) {
+  const list = cats && cats.length ? cats : CATS;
   return (
     <>
       <div className="cat-chips">
-        {CATS.map((c) => (
+        {list.map((c) => (
           <button key={c} className={"cat-chip" + (value === c ? " on" : "")}
             onClick={() => { const v = value === c ? "" : c; set(v); commit(v); }}>{c}</button>
         ))}
@@ -240,9 +241,9 @@ export default function App() {
   const [tab, setTab] = useState("library");
   const [toast, setToast] = useState(null);
   const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
+  const [meta, setMeta] = useState({ name: "", cats: null });
   const isDesktop = useIsDesktop();
 
-  // watch auth state
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u || null)), []);
 
   const flash = (msg, type = "ok") => {
@@ -250,7 +251,7 @@ export default function App() {
     setTimeout(() => setToast(null), 2600);
   };
 
-  // live-subscribe to this user's books in Firestore (syncs across devices)
+  // live books
   useEffect(() => {
     if (!user) { setBooks([]); setLoading(false); return; }
     setLoading(true);
@@ -266,8 +267,22 @@ export default function App() {
     return unsub;
   }, [user]);
 
-  // strip id + undefined fields (Firestore rejects undefined)
+  // live profile + category list
+  useEffect(() => {
+    if (!user) { setMeta({ name: "", cats: null }); return; }
+    const unsub = onSnapshot(doc(db, "users", user.uid, "meta", "app"), (snap) => {
+      const d = snap.exists() ? snap.data() : {};
+      setMeta({ name: d.name || "", cats: Array.isArray(d.cats) ? d.cats : CATS });
+    }, () => {});
+    return unsub;
+  }, [user]);
+
+  const cats = meta.cats || CATS;
+  const displayName = (meta.name && meta.name.trim()) || (user && user.email ? user.email.split("@")[0] : "");
+  const avatarChar = (displayName || "?")[0].toUpperCase();
+
   const clean = (o) => { const x = { ...o }; delete x.id; Object.keys(x).forEach((k) => x[k] === undefined && delete x[k]); return x; };
+  const metaRef = () => doc(db, "users", user.uid, "meta", "app");
 
   const addBook = async (b) => {
     if (!user) return;
@@ -298,6 +313,21 @@ export default function App() {
   };
   const logout = () => { signOut(auth); setTab("library"); setQuery(""); setFilter("all"); };
 
+  const saveName = async (name) => { if (!user) return; try { await setDoc(metaRef(), { name: (name || "").trim() }, { merge: true }); flash("บันทึกชื่อแล้ว"); } catch (e) { flash("บันทึกชื่อไม่สำเร็จ", "warn"); } };
+  const saveCats = async (next) => { if (!user) return; try { await setDoc(metaRef(), { cats: next }, { merge: true }); } catch (e) { flash("บันทึกหมวดไม่สำเร็จ", "warn"); } };
+  const addCat = (name) => { const n = (name || "").trim(); if (!n) return; if (cats.includes(n)) { flash("มีหมวดนี้แล้ว", "warn"); return; } saveCats([...cats, n]); };
+  const renameCat = async (oldN, newN) => {
+    const n = (newN || "").trim(); if (!n || n === oldN) return;
+    await saveCats(cats.map((c) => (c === oldN ? n : c)));
+    for (const b of books.filter((x) => (x.category || "") === oldN)) { try { await setDoc(doc(db, "users", user.uid, "books", b.id), { category: n }, { merge: true }); } catch (e) {} }
+    flash("เปลี่ยนชื่อหมวดแล้ว");
+  };
+  const deleteCat = async (name) => {
+    await saveCats(cats.filter((c) => c !== name));
+    for (const b of books.filter((x) => (x.category || "") === name)) { try { await setDoc(doc(db, "users", user.uid, "books", b.id), { category: "" }, { merge: true }); } catch (e) {} }
+    flash("ลบหมวดแล้ว");
+  };
+
   const counts = useMemo(() => {
     const c = { all: books.length, unread: 0, reading: 0, done: 0 };
     books.forEach((b) => { c[b.status] = (c[b.status] || 0) + 1; });
@@ -315,30 +345,32 @@ export default function App() {
 
   const detail = books.find((b) => b.id === detailId) || null;
   const toggleFilter = (k) => setFilter((f) => (f === k ? "all" : k));
-  const title = tab === "stats" ? "มังกรของฉัน" : tab === "collection" ? "คอลเลกชัน" : "ชั้นหนังสือ";
-  const NAV = [["library", Library, "คลัง"], ["collection", LayoutGrid, "คอลเลกชัน"], ["stats", PawPrint, "มังกร"]];
-  const avatarChar = user && user.email ? user.email[0].toUpperCase() : "?";
+  const avatarBtn = <span className="acct-ava">{avatarChar}</span>;
+
+  const statStrip = (
+    <div className="stat-strip">
+      {[["unread", "ดอง", "--amber"], ["reading", "กำลังอ่าน", "--green"], ["done", "อ่านจบ", "--slate"]].map(([k, l, c]) => (
+        <button key={k} className={"stat-card" + (filter === k ? " on" : "")} onClick={() => toggleFilter(k)}>
+          <span className="stat-n" style={{ color: `var(${c})` }}>{counts[k] || 0}</span>
+          <span className="stat-l">{l}</span>
+        </button>
+      ))}
+    </div>
+  );
+  const searchBox = (
+    <div className="search">
+      <Search size={17} />
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="เล่มนี้ซื้อแล้วยัง? พิมพ์ชื่อดู…" />
+      {query && <button onClick={() => setQuery("")} aria-label="ล้าง"><X size={16} /></button>}
+    </div>
+  );
 
   const libraryBody = (
     <>
-      <div className="stat-strip">
-        {[["unread", "ดอง", "--amber"], ["reading", "กำลังอ่าน", "--green"], ["done", "อ่านจบ", "--slate"]].map(([k, l, c]) => (
-          <button key={k} className={"stat-card" + (filter === k ? " on" : "")} onClick={() => toggleFilter(k)}>
-            <span className="stat-n" style={{ color: `var(${c})` }}>{counts[k] || 0}</span>
-            <span className="stat-l">{l}</span>
-          </button>
-        ))}
-      </div>
-      <div className="search">
-        <Search size={17} />
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="เล่มนี้ซื้อแล้วยัง? พิมพ์ชื่อดู…" />
-        {query && <button onClick={() => setQuery("")} aria-label="ล้าง"><X size={16} /></button>}
-      </div>
+      {statStrip}
+      {searchBox}
       {filter !== "all" && (
-        <div className="filter-tag">
-          แสดงเฉพาะ: <b>{STATUS[filter].full}</b>
-          <button onClick={() => setFilter("all")}><X size={13} /></button>
-        </div>
+        <div className="filter-tag">แสดงเฉพาะ: <b>{STATUS[filter].full}</b><button onClick={() => setFilter("all")}><X size={13} /></button></div>
       )}
       <div className="grid">
         {loading ? (
@@ -347,10 +379,7 @@ export default function App() {
           <div className="empty">
             <BookOpen size={34} strokeWidth={1.4} />
             {books.length === 0 ? (
-              <>
-                <p>คลังยังว่างอยู่</p>
-                <button className="btn-primary" onClick={() => setAddOpen(true)}><Camera size={17} /> เพิ่มเล่มแรก</button>
-              </>
+              <><p>คลังยังว่างอยู่</p><button className="btn-primary" onClick={() => setAddOpen(true)}><Camera size={17} /> เพิ่มเล่มแรก</button></>
             ) : (<p>ไม่พบเล่มที่ตรงกับที่ค้นหา</p>)}
           </div>
         ) : (
@@ -360,11 +389,27 @@ export default function App() {
     </>
   );
 
-  const body = tab === "stats"
-    ? <StatsView counts={counts} books={books} onOpenData={() => setDataOpen(true)} onPick={(k) => { setFilter(k); setTab("library"); }} />
-    : tab === "collection"
-      ? <CollectionScreen books={books} loading={loading} onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} />
-      : libraryBody;
+  const catManager = (
+    <CategoryManager cats={cats} books={books} onAdd={addCat} onRename={renameCat} onDelete={deleteCat}
+      onBack={isDesktop ? undefined : () => setTab("collection")} />
+  );
+
+  // PC dashboard: dragon on top, search/stats, collection below
+  const dashboard = (
+    <div className="dash">
+      <DragonHero books={books} />
+      <div className="dash-bar">{statStrip}{searchBox}</div>
+      <CollectionScreen books={books} loading={loading} query={query} status={filter}
+        onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")} />
+    </div>
+  );
+
+  const mobileBody = tab === "categories" ? catManager
+    : tab === "stats" ? <StatsView counts={counts} books={books} onOpenData={() => setDataOpen(true)} onPick={(k) => { setFilter(k); setTab("library"); }} />
+      : tab === "collection" ? <CollectionScreen books={books} loading={loading} onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")} />
+        : libraryBody;
+
+  const mobileTitle = tab === "stats" ? "มังกรของฉัน" : tab === "collection" ? "คอลเลกชัน" : tab === "categories" ? "หมวดหมู่" : "ชั้นหนังสือ";
 
   return (
     <div className={"root " + (isDesktop ? "desktop" : "mobile")}>
@@ -380,38 +425,39 @@ export default function App() {
           <aside className="sidebar">
             <div className="side-brand"><BookMarked size={22} /> ชั้นหนังสือ</div>
             <button className="side-profile" onClick={logout}>
-              <span className="acct-ava">{avatarChar}</span>
-              <div><b className="acct-name">{user.email}</b><small>ออกจากระบบ</small></div>
+              {avatarBtn}
+              <div><b className="acct-name">{displayName}</b><small>ออกจากระบบ</small></div>
             </button>
             <nav className="side-nav">
-              {NAV.map(([k, Icon, label]) => (
-                <button key={k} className={"side-item" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>
-                  <Icon size={20} /><span>{label}</span>
-                </button>
-              ))}
+              <button className={"side-item" + (tab !== "categories" ? " on" : "")} onClick={() => setTab("library")}>
+                <LayoutDashboard size={20} /><span>หน้าหลัก</span>
+              </button>
+              <button className={"side-item" + (tab === "categories" ? " on" : "")} onClick={() => setTab("categories")}>
+                <Tags size={20} /><span>หมวดหมู่</span>
+              </button>
             </nav>
             <button className="side-add" onClick={() => setAddOpen(true)}><Plus size={18} /> เพิ่มหนังสือ</button>
             <div className="side-foot">
-              <button className="side-link" onClick={() => setDataOpen(true)}><Cloud size={18} /> สำรอง & ตั้งค่า</button>
+              <button className="side-link" onClick={() => setDataOpen(true)}><Cloud size={18} /> ตั้งค่า & สำรองข้อมูล</button>
               <button className="side-link" onClick={logout}><LogOut size={18} /> ออกจากระบบ</button>
             </div>
           </aside>
           <main className="dmain desktop">
-            <div className="dmain-head"><h1>{title}</h1></div>
-            {body}
+            <div className="dmain-head"><h1>{tab === "categories" ? "จัดการหมวดหมู่" : "หน้าหลัก"}</h1></div>
+            {tab === "categories" ? catManager : dashboard}
           </main>
         </div>
       ) : (
         /* ---------- MOBILE ---------- */
         <div className="app">
           <div className="appbar">
-            <div className="brand"><BookMarked size={21} strokeWidth={2.2} /><span>{title}</span></div>
+            <div className="brand"><BookMarked size={21} strokeWidth={2.2} /><span>{mobileTitle}</span></div>
             <div className="hd-actions">
               <button className="btn-icon ava-btn" onClick={logout} aria-label="ออกจากระบบ">{avatarChar}</button>
-              <button className="btn-icon" onClick={() => setDataOpen(true)} aria-label="สำรอง/ตั้งค่า"><Cloud size={19} /></button>
+              <button className="btn-icon" onClick={() => setDataOpen(true)} aria-label="ตั้งค่า"><Cloud size={19} /></button>
             </div>
           </div>
-          <main className="screen">{body}</main>
+          <main className="screen">{mobileBody}</main>
           <nav className="tabbar">
             <button className={"tab" + (tab === "library" ? " on" : "")} onClick={() => setTab("library")}><Library size={22} /><span>คลัง</span></button>
             <button className={"tab" + (tab === "collection" ? " on" : "")} onClick={() => setTab("collection")}><LayoutGrid size={22} /><span>คอลเลกชัน</span></button>
@@ -422,13 +468,13 @@ export default function App() {
       )}
 
       {user && addOpen && (
-        <AddSheet books={books} onClose={() => setAddOpen(false)} onSave={(b) => { addBook(b); setAddOpen(false); }} />
+        <AddSheet books={books} cats={cats} onClose={() => setAddOpen(false)} onSave={(b) => { addBook(b); setAddOpen(false); }} />
       )}
       {user && detail && (
-        <DetailSheet book={detail} onClose={() => setDetailId(null)} onUpdate={(patch) => updateBook(detail.id, patch)} onDelete={() => deleteBook(detail.id)} />
+        <DetailSheet book={detail} cats={cats} onClose={() => setDetailId(null)} onUpdate={(patch) => updateBook(detail.id, patch)} onDelete={() => deleteBook(detail.id)} />
       )}
       {user && dataOpen && (
-        <DataSheet books={books} onClose={() => setDataOpen(false)} onImport={importBooks} flash={flash} />
+        <DataSheet books={books} name={meta.name} onSaveName={saveName} onClose={() => setDataOpen(false)} onImport={importBooks} flash={flash} />
       )}
 
       {toast && <div className={"toast " + toast.type}>{toast.msg}</div>}
@@ -697,10 +743,19 @@ function StatsView({ counts, books, onOpenData, onPick }) {
 /* ------------------------------------------------------------------ */
 /*  Collection screen — gallery shelves grouped by category            */
 /* ------------------------------------------------------------------ */
-function CollectionScreen({ books, loading, onOpen, onAdd }) {
+function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = "all", onManage }) {
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return books.filter((b) => {
+      if (status !== "all" && b.status !== status) return false;
+      if (!q) return true;
+      return [b.title, b.author, b.series].filter(Boolean).join(" ").toLowerCase().includes(q);
+    });
+  }, [books, query, status]);
+
   const groups = useMemo(() => {
     const m = new Map();
-    books.forEach((b) => {
+    filtered.forEach((b) => {
       const k = (b.category && b.category.trim()) || "ไม่ระบุหมวด";
       if (!m.has(k)) m.set(k, []);
       m.get(k).push(b);
@@ -710,7 +765,11 @@ function CollectionScreen({ books, loading, onOpen, onAdd }) {
       if (b[0] === "ไม่ระบุหมวด") return -1;
       return b[1].length - a[1].length;
     });
-  }, [books]);
+  }, [filtered]);
+
+  const manageBtn = onManage ? (
+    <button className="manage-btn" onClick={onManage}><Tags size={15} /> จัดการหมวด</button>
+  ) : null;
 
   if (loading) return <div className="empty"><Loader2 className="spin" /> กำลังเปิดคลัง…</div>;
   if (books.length === 0) {
@@ -725,7 +784,15 @@ function CollectionScreen({ books, loading, onOpen, onAdd }) {
 
   return (
     <div className="coll">
-      {groups.map(([cat, list]) => (
+      {(onManage || groups.length === 0) && (
+        <div className="coll-head">
+          <span className="coll-count">{filtered.length} เล่ม</span>
+          {manageBtn}
+        </div>
+      )}
+      {groups.length === 0 ? (
+        <div className="empty"><BookOpen size={30} strokeWidth={1.4} /><p>ไม่พบเล่มที่ตรงกับที่ค้นหา</p></div>
+      ) : groups.map(([cat, list]) => (
         <section className="shelf" key={cat}>
           <div className="shelf-head">
             <h3>{cat}</h3>
@@ -747,6 +814,64 @@ function CollectionScreen({ books, loading, onOpen, onAdd }) {
           </div>
         </section>
       ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Category manager — add / rename / delete categories                */
+/* ------------------------------------------------------------------ */
+function CategoryManager({ cats, books, onAdd, onRename, onDelete, onBack }) {
+  const [newCat, setNewCat] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [editVal, setEditVal] = useState("");
+  const [delName, setDelName] = useState(null);
+  const countOf = (c) => books.filter((b) => (b.category || "") === c).length;
+  const uncats = books.filter((b) => !(b.category && b.category.trim())).length;
+
+  return (
+    <div className="catmgr">
+      {onBack && <button className="login-back" style={{ position: "static", marginBottom: 14 }} onClick={onBack}><ArrowLeft size={18} /></button>}
+      <div className="cat-add-row">
+        <input className="cat-input" style={{ margin: 0 }} value={newCat} placeholder="เพิ่มหมวดใหม่…"
+          onChange={(e) => setNewCat(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { onAdd(newCat); setNewCat(""); } }} />
+        <button className="btn-primary" onClick={() => { onAdd(newCat); setNewCat(""); }}><Plus size={18} /></button>
+      </div>
+      <div className="cat-list">
+        {cats.map((c) => (
+          <div className="cat-row" key={c}>
+            {editing === c ? (
+              <>
+                <input className="cat-input" style={{ margin: 0, flex: 1 }} value={editVal} autoFocus
+                  onChange={(e) => setEditVal(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { onRename(c, editVal); setEditing(null); } }} />
+                <button className="btn-sm" onClick={() => { onRename(c, editVal); setEditing(null); }}>บันทึก</button>
+                <button className="btn-sm" onClick={() => setEditing(null)}>ยกเลิก</button>
+              </>
+            ) : delName === c ? (
+              <>
+                <span className="cat-name" style={{ fontSize: 13 }}>ลบ “{c}”? หนังสือจะกลายเป็นไม่ระบุหมวด</span>
+                <button className="btn-sm danger" onClick={() => { onDelete(c); setDelName(null); }}>ลบ</button>
+                <button className="btn-sm" onClick={() => setDelName(null)}>ยกเลิก</button>
+              </>
+            ) : (
+              <>
+                <span className="cat-name">{c}</span>
+                <span className="cat-count">{countOf(c)} เล่ม</span>
+                <button className="cat-act" onClick={() => { setEditing(c); setEditVal(c); }}><Pencil size={15} /></button>
+                <button className="cat-act" onClick={() => setDelName(c)}><Trash2 size={15} /></button>
+              </>
+            )}
+          </div>
+        ))}
+        {uncats > 0 && (
+          <div className="cat-row muted">
+            <span className="cat-name">ไม่ระบุหมวด</span>
+            <span className="cat-count">{uncats} เล่ม</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -784,7 +909,7 @@ function BookCard({ book, onClick }) {
 /* ------------------------------------------------------------------ */
 /*  Add sheet                                                          */
 /* ------------------------------------------------------------------ */
-function AddSheet({ books, onClose, onSave }) {
+function AddSheet({ books, onClose, onSave, cats }) {
   const [f, setF] = useState({
     title: "", author: "", series: "", volume: "", totalPages: "", status: "unread", cover: "", category: "",
   });
@@ -897,7 +1022,7 @@ function AddSheet({ books, onClose, onSave }) {
       <Field label="จำนวนหน้า" value={f.totalPages} onChange={(v) => set("totalPages", v.replace(/\D/g, ""))} placeholder="ไว้ติดตามว่าอ่านถึงไหน" />
 
       <label className="lbl">หมวดหมู่</label>
-      <CategoryPicker value={f.category} set={(v) => set("category", v)} commit={() => {}} />
+      <CategoryPicker value={f.category} set={(v) => set("category", v)} commit={() => {}} cats={cats} />
 
       <label className="lbl" style={{ marginTop: 4 }}>สถานะ</label>
       <div className="seg">
@@ -918,7 +1043,7 @@ function AddSheet({ books, onClose, onSave }) {
 /* ------------------------------------------------------------------ */
 /*  Detail sheet                                                       */
 /* ------------------------------------------------------------------ */
-function DetailSheet({ book, onClose, onUpdate, onDelete }) {
+function DetailSheet({ book, onClose, onUpdate, onDelete, cats }) {
   const [page, setPage] = useState(String(book.currentPage || ""));
   const [cat, setCat] = useState(book.category || "");
   const [checking, setChecking] = useState(false);
@@ -989,7 +1114,7 @@ function DetailSheet({ book, onClose, onUpdate, onDelete }) {
       </div>
 
       <label className="lbl">หมวดหมู่</label>
-      <CategoryPicker value={cat} set={setCat} commit={(v) => onUpdate({ category: (v || "").trim() })} />
+      <CategoryPicker value={cat} set={setCat} commit={(v) => onUpdate({ category: (v || "").trim() })} cats={cats} />
 
       {book.totalPages > 0 && (
         <div className="prog">
@@ -1046,7 +1171,7 @@ function toCSV(books) {
   return "\uFEFF" + [head, ...rows].join("\n"); // BOM so Thai opens correctly in Excel
 }
 
-function DataSheet({ books, onClose, onImport, flash }) {
+function DataSheet({ books, onClose, onImport, flash, name, onSaveName }) {
   const [paste, setPaste] = useState("");
   const fileRef = useRef(null);
   const stamp = new Date().toISOString().slice(0, 10);
@@ -1075,12 +1200,17 @@ function DataSheet({ books, onClose, onImport, flash }) {
   };
 
   return (
-    <Sheet title="สำรอง & ย้ายข้อมูล" onClose={onClose}>
+    <Sheet title="ตั้งค่า & สำรองข้อมูล" onClose={onClose}>
+      <label className="lbl">ชื่อที่แสดง</label>
+      <input className="cat-input" defaultValue={name} placeholder="ตั้งชื่อของคุณ (ใช้แทนอีเมล)"
+        onBlur={(e) => onSaveName(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+
       <div className="data-note">
         <Cloud size={18} />
         <div>
-          ข้อมูลของคุณ <b>ซิงก์อัตโนมัติผ่านบัญชี Claude</b> อยู่แล้ว — เปิดการ์ดนี้ด้วยบัญชีเดิม
-          จะเห็นข้อมูลชุดเดียวกันทั้งบนเว็บและมือถือ ส่วนด้านล่างนี้ไว้ <b>สำรองเป็นไฟล์ของคุณเอง</b> หรือย้ายไปที่อื่น
+          ข้อมูลของคุณ <b>ซิงก์อัตโนมัติผ่านบัญชี (Firebase)</b> — เข้าสู่ระบบด้วยอีเมลเดิม
+          จะเห็นข้อมูลชุดเดียวกันทุกเครื่อง ส่วนด้านล่างไว้ <b>สำรองเป็นไฟล์ของคุณเอง</b> หรือย้ายไปที่อื่น
         </div>
       </div>
 
@@ -1488,6 +1618,32 @@ input{font-family:var(--sans)}
   display:grid;place-items:center;font-weight:700;font-size:15px;flex:none}
 .acct-name{display:block;font-size:13.5px;font-weight:600;text-align:left;max-width:150px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* PC dashboard (dragon + collection in one page) */
+.dash{display:flex;flex-direction:column;gap:22px;max-width:1080px}
+.dash-bar{display:flex;flex-direction:column;gap:12px;max-width:540px}
+.dash .stat-strip,.dash .search{max-width:540px;margin:0}
+
+/* collection head + manage button */
+.coll-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.coll-count{font-size:13px;color:var(--ink-soft);font-weight:600}
+.manage-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card);
+  color:var(--ink-soft);border-radius:10px;padding:8px 12px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer}
+.manage-btn:hover{color:var(--green);border-color:var(--green)}
+
+/* category manager */
+.catmgr{max-width:620px}
+.cat-add-row{display:flex;gap:9px;margin-bottom:18px}
+.cat-add-row .btn-primary{padding:0 16px}
+.cat-list{display:flex;flex-direction:column;gap:9px}
+.cat-row{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);
+  border-radius:13px;padding:12px 15px;box-shadow:var(--sh)}
+.cat-row.muted{opacity:.65;box-shadow:none}
+.cat-name{font-size:14.5px;font-weight:600}
+.cat-count{margin-left:auto;font-size:12.5px;color:var(--ink-soft);font-weight:500}
+.cat-act{border:none;background:var(--bg);color:var(--ink-soft);width:34px;height:34px;border-radius:9px;
+  display:grid;place-items:center;cursor:pointer;flex:none}
+.cat-act:hover{color:var(--ink)}
 .side-nav{display:flex;flex-direction:column;gap:4px}
 .side-item{display:flex;align-items:center;gap:12px;border:none;background:none;cursor:pointer;
   padding:11px 13px;border-radius:12px;font-family:var(--sans);font-size:14.5px;font-weight:600;
