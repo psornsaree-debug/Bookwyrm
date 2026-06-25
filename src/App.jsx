@@ -3,11 +3,11 @@ import {
   Camera, Plus, Search, X, Check, BookOpen, Trash2, Loader2,
   Library, Sparkles, AlertTriangle, ChevronRight, Pencil, BookMarked,
   Cloud, Download, Upload, ClipboardCopy, CheckCircle2, BarChart3, LayoutGrid, PawPrint,
-  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags,
+  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags, ArrowUpDown,
 } from "lucide-react";
 import { auth, db } from "./firebase";
 import {
-  onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut,
+  onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail,
 } from "firebase/auth";
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from "firebase/firestore";
 
@@ -184,42 +184,64 @@ function AuthScreen() {
   const [pw, setPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [ok, setOk] = useState("");
+
+  const validEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
 
   async function submit() {
-    setErr("");
-    if (!email.trim() || pw.length < 6) { setErr("ใส่อีเมล และรหัสผ่านอย่างน้อย 6 ตัว"); return; }
+    setErr(""); setOk("");
+    if (!validEmail(email)) { setErr("รูปแบบอีเมลไม่ถูกต้อง (เช่น name@gmail.com)"); return; }
+    if (pw.length < 6) { setErr("รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร"); return; }
     setBusy(true);
     try {
       if (mode === "up") await createUserWithEmailAndPassword(auth, email.trim(), pw);
       else await signInWithEmailAndPassword(auth, email.trim(), pw);
-      // onAuthStateChanged in App will switch the screen automatically
     } catch (e) {
       const m = (e && e.code) || "";
       setErr(
-        m.includes("invalid-credential") || m.includes("wrong-password") || m.includes("user-not-found") ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง" :
-        m.includes("email-already-in-use") ? "อีเมลนี้มีบัญชีอยู่แล้ว ลองเข้าสู่ระบบ" :
+        m.includes("invalid-credential") || m.includes("wrong-password") ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง" :
+        m.includes("user-not-found") ? "ไม่พบบัญชีนี้ — ลองสมัครใหม่" :
+        m.includes("email-already-in-use") ? "อีเมลนี้มีบัญชีอยู่แล้ว กดเข้าสู่ระบบแทน" :
         m.includes("invalid-email") ? "รูปแบบอีเมลไม่ถูกต้อง" :
         m.includes("weak-password") ? "รหัสผ่านอ่อนเกินไป (อย่างน้อย 6 ตัว)" :
-        m.includes("network") ? "เชื่อมต่ออินเทอร์เน็ตไม่ได้" :
+        m.includes("too-many-requests") ? "ลองผิดหลายครั้งเกินไป รอสักครู่แล้วลองใหม่" :
+        m.includes("network") ? "ต่ออินเทอร์เน็ตไม่ได้ — เช็คสัญญาณแล้วลองใหม่" :
         "เกิดข้อผิดพลาด ลองใหม่อีกครั้ง"
       );
+    } finally { setBusy(false); }
+  }
+
+  async function forgot() {
+    setErr(""); setOk("");
+    if (!validEmail(email)) { setErr("ใส่อีเมลของคุณในช่องด้านบนก่อน แล้วกดลืมรหัสผ่านอีกครั้ง"); return; }
+    setBusy(true);
+    try {
+      await sendPasswordResetEmail(auth, email.trim());
+      setOk("ส่งลิงก์รีเซ็ตรหัสผ่านไปที่อีเมลแล้ว เช็กกล่องจดหมาย (รวม Spam)");
+    } catch (e) {
+      const m = (e && e.code) || "";
+      setErr(m.includes("user-not-found") ? "ไม่พบบัญชีอีเมลนี้" : m.includes("invalid-email") ? "รูปแบบอีเมลไม่ถูกต้อง" : "ส่งลิงก์ไม่สำเร็จ ลองใหม่");
     } finally { setBusy(false); }
   }
 
   return (
     <div className="login">
       <div className="login-card">
-        <div className="login-logo"><BookMarked size={22} /> ชั้นหนังสือ</div>
+        <div className="login-logo"><BookMarked size={22} /> Bookwyrm</div>
         <div className="login-sub">{mode === "up" ? "สร้างบัญชีเพื่อซิงก์ข้อมูลข้ามทุกเครื่อง" : "เข้าสู่ระบบเพื่อเปิดชั้นหนังสือของคุณ"}</div>
-        <input className="login-input" type="email" value={email} placeholder="อีเมล" onChange={(e) => setEmail(e.target.value)} />
+        <input className="login-input" type="email" value={email} placeholder="อีเมล" onChange={(e) => { setEmail(e.target.value); setErr(""); setOk(""); }} />
         <input className="login-input" type="password" value={pw} placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)"
           onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
         {err && <p className="hint" style={{ color: "var(--amber)", margin: "-4px 0 12px" }}>{err}</p>}
+        {ok && <p className="hint" style={{ color: "var(--green)", margin: "-4px 0 12px" }}>{ok}</p>}
         <button className="btn-primary big" disabled={busy} onClick={submit}>
           {busy ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
           {mode === "up" ? "สมัครและเข้าใช้งาน" : "เข้าสู่ระบบ"}
         </button>
-        <button className="login-addbtn" style={{ marginTop: 12 }} onClick={() => { setMode((m) => (m === "up" ? "in" : "up")); setErr(""); }}>
+        {mode === "in" && (
+          <button className="login-text-btn" onClick={forgot} disabled={busy}>ลืมรหัสผ่าน?</button>
+        )}
+        <button className="login-addbtn" style={{ marginTop: 12 }} onClick={() => { setMode((m) => (m === "up" ? "in" : "up")); setErr(""); setOk(""); }}>
           {mode === "up" ? "มีบัญชีอยู่แล้ว? เข้าสู่ระบบ" : "ยังไม่มีบัญชี? สมัครใหม่"}
         </button>
       </div>
@@ -239,9 +261,10 @@ export default function App() {
   const [detailId, setDetailId] = useState(null);
   const [dataOpen, setDataOpen] = useState(false);
   const [tab, setTab] = useState("library");
+  const [sort, setSort] = useState("added");
   const [toast, setToast] = useState(null);
   const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
-  const [meta, setMeta] = useState({ name: "", cats: null });
+  const [meta, setMeta] = useState({ name: "", cats: null, dragonName: "", lastTier: undefined });
   const isDesktop = useIsDesktop();
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u || null)), []);
@@ -269,10 +292,15 @@ export default function App() {
 
   // live profile + category list
   useEffect(() => {
-    if (!user) { setMeta({ name: "", cats: null }); return; }
+    if (!user) { setMeta({ name: "", cats: null, dragonName: "", lastTier: undefined }); return; }
     const unsub = onSnapshot(doc(db, "users", user.uid, "meta", "app"), (snap) => {
       const d = snap.exists() ? snap.data() : {};
-      setMeta({ name: d.name || "", cats: Array.isArray(d.cats) ? d.cats : CATS });
+      setMeta({
+        name: d.name || "",
+        cats: Array.isArray(d.cats) ? d.cats : CATS,
+        dragonName: d.dragonName || "",
+        lastTier: typeof d.lastTier === "number" ? d.lastTier : undefined,
+      });
     }, () => {});
     return unsub;
   }, [user]);
@@ -327,12 +355,37 @@ export default function App() {
     for (const b of books.filter((x) => (x.category || "") === name)) { try { await setDoc(doc(db, "users", user.uid, "books", b.id), { category: "" }, { merge: true }); } catch (e) {} }
     flash("ลบหมวดแล้ว");
   };
+  const saveDragonName = async (name) => { if (!user) return; try { await setDoc(metaRef(), { dragonName: (name || "").trim() }, { merge: true }); } catch (e) {} };
+
+  // evolution celebration: when the dragon crosses into a higher tier
+  const tierOf = (n) => (n >= 1000 ? 3 : n >= 100 ? 2 : n >= 20 ? 1 : 0);
+  useEffect(() => {
+    if (!user || meta.cats === null) return;            // wait until profile doc loaded
+    const tier = tierOf(books.length);
+    const last = meta.lastTier;
+    if (last === undefined) { setDoc(metaRef(), { lastTier: tier }, { merge: true }).catch(() => {}); return; }
+    if (tier !== last) {
+      setDoc(metaRef(), { lastTier: tier }, { merge: true }).catch(() => {});
+      if (tier > last) {
+        const names = ["มังกรน้อย", "มังกรวัยรุ่น", "มังกรนักสะสม", "มังกรในตำนาน"];
+        const pet = (meta.dragonName && meta.dragonName.trim()) || "มังกรของคุณ";
+        flash(`🎉 ${pet} วิวัฒนาการเป็น${names[tier]}แล้ว!`, "ok");
+      }
+    }
+  }, [books.length, meta.cats, meta.lastTier, meta.dragonName, user]);
 
   const counts = useMemo(() => {
     const c = { all: books.length, unread: 0, reading: 0, done: 0 };
     books.forEach((b) => { c[b.status] = (c[b.status] || 0) + 1; });
     return c;
   }, [books]);
+
+  const value = useMemo(() => {
+    let total = 0, dong = 0;
+    books.forEach((b) => { const p = Number(b.price) || 0; total += p; if (b.status === "unread") dong += p; });
+    return { total, dong };
+  }, [books]);
+  const baht = (n) => n.toLocaleString("th-TH") + " ฿";
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -389,6 +442,13 @@ export default function App() {
     </>
   );
 
+  const valueBar = (value.total > 0 || value.dong > 0) ? (
+    <div className="value-bar">
+      <div className="value-box"><span className="value-l">มูลค่ารวม</span><span className="value-n">{baht(value.total)}</span></div>
+      <div className="value-box dong"><span className="value-l">จมในกองดอง</span><span className="value-n">{baht(value.dong)}</span></div>
+    </div>
+  ) : null;
+
   const catManager = (
     <CategoryManager cats={cats} books={books} onAdd={addCat} onRename={renameCat} onDelete={deleteCat}
       onBack={isDesktop ? undefined : () => setTab("collection")} />
@@ -397,19 +457,19 @@ export default function App() {
   // PC dashboard: dragon on top, search/stats, collection below
   const dashboard = (
     <div className="dash">
-      <DragonHero books={books} />
-      <div className="dash-bar">{statStrip}{searchBox}</div>
-      <CollectionScreen books={books} loading={loading} query={query} status={filter}
+      <DragonHero books={books} dragonName={meta.dragonName} onRename={saveDragonName} />
+      <div className="dash-bar">{statStrip}{valueBar}{searchBox}</div>
+      <CollectionScreen books={books} loading={loading} query={query} status={filter} sort={sort} setSort={setSort}
         onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")} />
     </div>
   );
 
   const mobileBody = tab === "categories" ? catManager
-    : tab === "stats" ? <StatsView counts={counts} books={books} onOpenData={() => setDataOpen(true)} onPick={(k) => { setFilter(k); setTab("library"); }} />
-      : tab === "collection" ? <CollectionScreen books={books} loading={loading} onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")} />
+    : tab === "stats" ? <StatsView counts={counts} books={books} value={value} baht={baht} dragonName={meta.dragonName} onRename={saveDragonName} onOpenData={() => setDataOpen(true)} onPick={(k) => { setFilter(k); setTab("library"); }} />
+      : tab === "collection" ? <CollectionScreen books={books} loading={loading} status={filter} setStatus={setFilter} sort={sort} setSort={setSort} showStatusFilter onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")} />
         : libraryBody;
 
-  const mobileTitle = tab === "stats" ? "มังกรของฉัน" : tab === "collection" ? "คอลเลกชัน" : tab === "categories" ? "หมวดหมู่" : "ชั้นหนังสือ";
+  const mobileTitle = tab === "stats" ? "มังกรของฉัน" : tab === "collection" ? "คอลเลกชัน" : tab === "categories" ? "หมวดหมู่" : "Bookwyrm";
 
   return (
     <div className={"root " + (isDesktop ? "desktop" : "mobile")}>
@@ -423,7 +483,7 @@ export default function App() {
         /* ---------- DESKTOP ---------- */
         <div className="dshell desktop">
           <aside className="sidebar">
-            <div className="side-brand"><BookMarked size={22} /> ชั้นหนังสือ</div>
+            <div className="side-brand"><BookMarked size={22} /> Bookwyrm</div>
             <button className="side-profile" onClick={logout}>
               {avatarBtn}
               <div><b className="acct-name">{displayName}</b><small>ออกจากระบบ</small></div>
@@ -653,13 +713,30 @@ function Dragon({ k, size = 172 }) {
   );
 }
 
-function DragonHero({ books }) {
+function DragonHero({ books, dragonName = "", onRename }) {
   const d = getDragon(books);
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(dragonName);
+  useEffect(() => { setVal(dragonName); }, [dragonName]);
+  const shown = (dragonName && dragonName.trim()) || d.name;
+
+  const save = () => { setEditing(false); if (onRename && val.trim() !== dragonName) onRename(val.trim()); };
+
   return (
     <div className="pet" data-k={d.k}>
       <div className="pet-stage">ระดับ {d.stage}</div>
       <div className="pet-art"><Dragon k={d.k} /></div>
-      <div className="pet-name">{d.name}</div>
+      {editing ? (
+        <div className="pet-name-edit">
+          <input value={val} autoFocus maxLength={20} placeholder="ตั้งชื่อมังกร" onChange={(e) => setVal(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") setEditing(false); }} />
+          <button className="btn-sm" onClick={save}>บันทึก</button>
+        </div>
+      ) : (
+        <div className="pet-name" onClick={() => onRename && setEditing(true)} title={onRename ? "แตะเพื่อตั้งชื่อ" : ""}>
+          {shown}{onRename && <Pencil size={13} className="pet-name-pen" />}
+        </div>
+      )}
       <div className="pet-desc">{d.desc}</div>
       <div className="pet-meta">มี {d.total} เล่ม · ดอง {d.unread} · อ่านจบ {d.done}</div>
       {d.nextAt ? (
@@ -677,14 +754,20 @@ function DragonHero({ books }) {
 /* ------------------------------------------------------------------ */
 /*  Stats / dashboard screen                                           */
 /* ------------------------------------------------------------------ */
-function StatsView({ counts, books, onOpenData, onPick }) {
+function StatsView({ counts, books, value, baht, dragonName, onRename, onOpenData, onPick }) {
   const total = books.length;
   const donePct = total ? Math.round((counts.done / total) * 100) : 0;
   const seriesCount = new Set(books.filter((b) => b.series).map((b) => b.series.trim().toLowerCase())).size;
 
   return (
     <div className="stats">
-      <DragonHero books={books} />
+      <DragonHero books={books} dragonName={dragonName} onRename={onRename} />
+      {value && (value.total > 0 || value.dong > 0) && (
+        <div className="value-bar">
+          <div className="value-box"><span className="value-l">มูลค่ารวม</span><span className="value-n">{baht(value.total)}</span></div>
+          <div className="value-box dong"><span className="value-l">จมในกองดอง</span><span className="value-n">{baht(value.dong)}</span></div>
+        </div>
+      )}
       <div className="dong">
         <div>
           <div className="dong-num">{counts.unread}</div>
@@ -743,7 +826,7 @@ function StatsView({ counts, books, onOpenData, onPick }) {
 /* ------------------------------------------------------------------ */
 /*  Collection screen — gallery shelves grouped by category            */
 /* ------------------------------------------------------------------ */
-function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = "all", onManage }) {
+function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = "all", setStatus, sort = "added", setSort, showStatusFilter = false, onManage }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return books.filter((b) => {
@@ -753,6 +836,15 @@ function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = 
     });
   }, [books, query, status]);
 
+  const sortBooks = (arr) => {
+    const a = [...arr];
+    if (sort === "title") a.sort((x, y) => (x.title || "").localeCompare(y.title || "", "th"));
+    else if (sort === "volume") a.sort((x, y) => (x.series || "").localeCompare(y.series || "", "th") || (Number(x.volume) || 0) - (Number(y.volume) || 0));
+    else if (sort === "status") { const o = { unread: 0, reading: 1, done: 2 }; a.sort((x, y) => (o[x.status] ?? 9) - (o[y.status] ?? 9) || (y.addedAt || 0) - (x.addedAt || 0)); }
+    else a.sort((x, y) => (y.addedAt || 0) - (x.addedAt || 0)); // added (default)
+    return a;
+  };
+
   const groups = useMemo(() => {
     const m = new Map();
     filtered.forEach((b) => {
@@ -760,13 +852,27 @@ function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = 
       if (!m.has(k)) m.set(k, []);
       m.get(k).push(b);
     });
-    return [...m.entries()].sort((a, b) => {
-      if (a[0] === "ไม่ระบุหมวด") return 1;
-      if (b[0] === "ไม่ระบุหมวด") return -1;
-      return b[1].length - a[1].length;
-    });
-  }, [filtered]);
+    return [...m.entries()]
+      .map(([cat, list]) => [cat, sortBooks(list)])
+      .sort((a, b) => {
+        if (a[0] === "ไม่ระบุหมวด") return 1;
+        if (b[0] === "ไม่ระบุหมวด") return -1;
+        return b[1].length - a[1].length;
+      });
+  }, [filtered, sort]);
 
+  const STATUS_CHIPS = [["all", "ทั้งหมด"], ["unread", "ดอง"], ["reading", "กำลังอ่าน"], ["done", "อ่านจบ"]];
+  const sortControl = setSort ? (
+    <label className="sort-ctl">
+      <ArrowUpDown size={14} />
+      <select value={sort} onChange={(e) => setSort(e.target.value)}>
+        <option value="added">ล่าสุด</option>
+        <option value="title">ชื่อ ก-ฮ</option>
+        <option value="volume">ตามเล่ม</option>
+        <option value="status">ตามสถานะ</option>
+      </select>
+    </label>
+  ) : null;
   const manageBtn = onManage ? (
     <button className="manage-btn" onClick={onManage}><Tags size={15} /> จัดการหมวด</button>
   ) : null;
@@ -784,12 +890,17 @@ function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = 
 
   return (
     <div className="coll">
-      {(onManage || groups.length === 0) && (
-        <div className="coll-head">
-          <span className="coll-count">{filtered.length} เล่ม</span>
-          {manageBtn}
+      {showStatusFilter && setStatus && (
+        <div className="filter-chips">
+          {STATUS_CHIPS.map(([k, l]) => (
+            <button key={k} className={"fchip" + (status === k ? " on" : "")} onClick={() => setStatus(k)}>{l}</button>
+          ))}
         </div>
       )}
+      <div className="coll-head">
+        <span className="coll-count">{filtered.length} เล่ม</span>
+        <div className="coll-tools">{sortControl}{manageBtn}</div>
+      </div>
       {groups.length === 0 ? (
         <div className="empty"><BookOpen size={30} strokeWidth={1.4} /><p>ไม่พบเล่มที่ตรงกับที่ค้นหา</p></div>
       ) : groups.map(([cat, list]) => (
@@ -911,7 +1022,7 @@ function BookCard({ book, onClick }) {
 /* ------------------------------------------------------------------ */
 function AddSheet({ books, onClose, onSave, cats }) {
   const [f, setF] = useState({
-    title: "", author: "", series: "", volume: "", totalPages: "", status: "unread", cover: "", category: "",
+    title: "", author: "", series: "", volume: "", totalPages: "", price: "", status: "unread", cover: "", category: "",
   });
   const [scanning, setScanning] = useState(false);
   const [scanErr, setScanErr] = useState("");
@@ -981,6 +1092,7 @@ function AddSheet({ books, onClose, onSave, cats }) {
       series: f.series.trim(),
       volume: f.volume.trim(),
       totalPages: parseInt(f.totalPages) || 0,
+      price: parseFloat(f.price) || 0,
       currentPage: f.status === "done" && f.totalPages ? parseInt(f.totalPages) : 0,
       status: f.status,
       cover: f.cover,
@@ -1019,7 +1131,10 @@ function AddSheet({ books, onClose, onSave, cats }) {
         <Field label="ชื่อชุด / ซีรีส์" value={f.series} onChange={(v) => set("series", v)} />
         <Field label="เล่มที่" value={f.volume} onChange={(v) => set("volume", v)} placeholder="3" />
       </div>
-      <Field label="จำนวนหน้า" value={f.totalPages} onChange={(v) => set("totalPages", v.replace(/\D/g, ""))} placeholder="ไว้ติดตามว่าอ่านถึงไหน" />
+      <div className="two">
+        <Field label="จำนวนหน้า" value={f.totalPages} onChange={(v) => set("totalPages", v.replace(/\D/g, ""))} placeholder="ไว้ติดตาม" />
+        <Field label="ราคา (บาท)" value={f.price} onChange={(v) => set("price", v.replace(/[^\d.]/g, ""))} placeholder="เช่น 359" />
+      </div>
 
       <label className="lbl">หมวดหมู่</label>
       <CategoryPicker value={f.category} set={(v) => set("category", v)} commit={() => {}} cats={cats} />
@@ -1046,6 +1161,7 @@ function AddSheet({ books, onClose, onSave, cats }) {
 function DetailSheet({ book, onClose, onUpdate, onDelete, cats }) {
   const [page, setPage] = useState(String(book.currentPage || ""));
   const [cat, setCat] = useState(book.category || "");
+  const [price, setPrice] = useState(book.price ? String(book.price) : "");
   const [checking, setChecking] = useState(false);
   const [nextInfo, setNextInfo] = useState("");
   const [confirmDel, setConfirmDel] = useState(false);
@@ -1115,6 +1231,15 @@ function DetailSheet({ book, onClose, onUpdate, onDelete, cats }) {
 
       <label className="lbl">หมวดหมู่</label>
       <CategoryPicker value={cat} set={setCat} commit={(v) => onUpdate({ category: (v || "").trim() })} cats={cats} />
+
+      <label className="lbl">ราคา (บาท)</label>
+      <div className="price-edit">
+        <input value={price} inputMode="decimal" placeholder="เช่น 359"
+          onChange={(e) => setPrice(e.target.value.replace(/[^\d.]/g, ""))}
+          onBlur={() => onUpdate({ price: parseFloat(price) || 0 })}
+          onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+        <span>฿</span>
+      </div>
 
       {book.totalPages > 0 && (
         <div className="prog">
@@ -1644,6 +1769,48 @@ input{font-family:var(--sans)}
 .cat-act{border:none;background:var(--bg);color:var(--ink-soft);width:34px;height:34px;border-radius:9px;
   display:grid;place-items:center;cursor:pointer;flex:none}
 .cat-act:hover{color:var(--ink)}
+
+/* forgot-password link */
+.login-text-btn{display:block;margin:10px auto 0;background:none;border:none;color:var(--primary);
+  font-family:var(--sans);font-size:13.5px;font-weight:600;cursor:pointer;padding:4px}
+.login-text-btn:hover{text-decoration:underline}
+.login-text-btn:disabled{opacity:.5;cursor:default}
+
+/* value bar (book worth) */
+.value-bar{display:flex;gap:11px;max-width:540px}
+.value-box{flex:1;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:13px 15px;
+  box-shadow:var(--sh);display:flex;flex-direction:column;gap:3px}
+.value-box.dong{background:linear-gradient(135deg,#FFF5F0,#FFEDE6);border-color:#FFD9C9}
+.value-l{font-size:12px;color:var(--ink-soft);font-weight:600}
+.value-n{font-size:18px;font-weight:800;color:var(--ink);letter-spacing:-.3px}
+.value-box.dong .value-n{color:var(--coral,#FF6B4A)}
+
+/* collection sort + filter controls */
+.coll-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.coll-tools{display:flex;align-items:center;gap:8px}
+.sort-ctl{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card);
+  color:var(--ink-soft);border-radius:10px;padding:7px 10px;font-size:13px;font-weight:600}
+.sort-ctl select{border:none;background:none;font-family:var(--sans);font-size:13px;font-weight:600;
+  color:var(--ink);cursor:pointer;outline:none}
+.filter-chips{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.fchip{border:1px solid var(--line);background:var(--card);color:var(--ink-soft);border-radius:999px;
+  padding:7px 15px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer}
+.fchip.on{background:var(--primary);color:#fff;border-color:var(--primary)}
+
+/* dragon naming */
+.pet-name{cursor:default;display:inline-flex;align-items:center;gap:6px}
+.pet-name .pet-name-pen{opacity:.45}
+.pet-name[title]:hover{cursor:pointer}.pet-name[title]:hover .pet-name-pen{opacity:.9;color:var(--primary)}
+.pet-name-edit{display:flex;gap:8px;align-items:center;justify-content:center;margin:2px 0 4px}
+.pet-name-edit input{border:1.5px solid var(--primary);border-radius:10px;padding:7px 11px;font-family:var(--sans);
+  font-size:15px;font-weight:700;text-align:center;width:160px;outline:none;color:var(--ink)}
+
+/* price edit row */
+.price-edit{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.price-edit input{flex:1;border:1px solid var(--line);border-radius:11px;padding:11px 13px;font-family:var(--sans);
+  font-size:15px;background:var(--card);outline:none;color:var(--ink)}
+.price-edit input:focus{border-color:var(--primary)}
+.price-edit span{font-size:16px;font-weight:700;color:var(--ink-soft)}
 .side-nav{display:flex;flex-direction:column;gap:4px}
 .side-item{display:flex;align-items:center;gap:12px;border:none;background:none;cursor:pointer;
   padding:11px 13px;border-radius:12px;font-family:var(--sans);font-size:14.5px;font-weight:600;
