@@ -244,8 +244,8 @@ function AuthScreen() {
         <button className="login-addbtn" style={{ marginTop: 12 }} onClick={() => { setMode((m) => (m === "up" ? "in" : "up")); setErr(""); setOk(""); }}>
           {mode === "up" ? "มีบัญชีอยู่แล้ว? เข้าสู่ระบบ" : "ยังไม่มีบัญชี? สมัครใหม่"}
         </button>
-        <div className="credit" style={{ marginTop: 16 }}>Designed by <b>TQx</b></div>
       </div>
+      <div className="login-credit">Designed by <b>TQx</b></div>
     </div>
   );
 }
@@ -1708,8 +1708,10 @@ input{font-family:var(--sans)}
 /* splash + login */
 .root{min-height:100dvh;background:var(--bg)}
 .splash{height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--green)}
-.login{min-height:100dvh;display:flex;align-items:center;justify-content:center;padding:24px;
+.login{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;
   background:radial-gradient(120% 70% at 50% 0%, #EEEAFF 0%, var(--bg) 58%)}
+.login-credit{text-align:center;font-size:12.5px;color:var(--ink-soft);letter-spacing:.3px;opacity:.85}
+.login-credit b{color:var(--primary);font-weight:700;letter-spacing:.5px}
 .login-card{position:relative;width:100%;max-width:380px;background:var(--card);border-radius:26px;
   padding:30px 26px;box-shadow:0 24px 60px rgba(20,20,40,.14);text-align:center}
 .login-logo{display:flex;align-items:center;justify-content:center;gap:9px;font-weight:700;font-size:20px;
