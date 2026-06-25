@@ -244,7 +244,9 @@ function AuthScreen() {
         <button className="login-addbtn" style={{ marginTop: 12 }} onClick={() => { setMode((m) => (m === "up" ? "in" : "up")); setErr(""); setOk(""); }}>
           {mode === "up" ? "มีบัญชีอยู่แล้ว? เข้าสู่ระบบ" : "ยังไม่มีบัญชี? สมัครใหม่"}
         </button>
+        <div className="credit" style={{ marginTop: 16 }}>Designed by <b>TQx</b></div>
       </div>
+      <div className="credit">Designed by <b>TQx</b></div>
     </div>
   );
 }
@@ -264,7 +266,7 @@ export default function App() {
   const [sort, setSort] = useState("added");
   const [toast, setToast] = useState(null);
   const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
-  const [meta, setMeta] = useState({ name: "", cats: null, dragonName: "", lastTier: undefined });
+  const [meta, setMeta] = useState({ name: "", cats: null, dragonName: "", lastTier: undefined, apiKey: "" });
   const isDesktop = useIsDesktop();
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u || null)), []);
@@ -292,15 +294,25 @@ export default function App() {
 
   // live profile + category list
   useEffect(() => {
-    if (!user) { setMeta({ name: "", cats: null, dragonName: "", lastTier: undefined }); return; }
-    const unsub = onSnapshot(doc(db, "users", user.uid, "meta", "app"), (snap) => {
+    if (!user) { setMeta({ name: "", cats: null, dragonName: "", lastTier: undefined, apiKey: "" }); return; }
+    const ref = doc(db, "users", user.uid, "meta", "app");
+    const unsub = onSnapshot(ref, (snap) => {
       const d = snap.exists() ? snap.data() : {};
       setMeta({
         name: d.name || "",
         cats: Array.isArray(d.cats) ? d.cats : CATS,
         dragonName: d.dragonName || "",
         lastTier: typeof d.lastTier === "number" ? d.lastTier : undefined,
+        apiKey: d.apiKey || "",
       });
+      // mirror key to localStorage so callClaude() can read it synchronously
+      try {
+        if (d.apiKey) localStorage.setItem("anthropic_key", d.apiKey);
+        else {
+          const lk = localStorage.getItem("anthropic_key");      // migrate old local-only key to the cloud once
+          if (lk) setDoc(ref, { apiKey: lk }, { merge: true }).catch(() => {});
+        }
+      } catch (e) {}
     }, () => {});
     return unsub;
   }, [user]);
@@ -356,6 +368,12 @@ export default function App() {
     flash("ลบหมวดแล้ว");
   };
   const saveDragonName = async (name) => { if (!user) return; try { await setDoc(metaRef(), { dragonName: (name || "").trim() }, { merge: true }); } catch (e) {} };
+  const saveApiKey = async (key) => {
+    const k = (key || "").trim();
+    try { localStorage.setItem("anthropic_key", k); } catch (e) {}
+    if (!user) return;
+    try { await setDoc(metaRef(), { apiKey: k }, { merge: true }); flash(k ? "บันทึก API key แล้ว — ซิงก์ทุกเครื่อง" : "ลบ API key แล้ว"); } catch (e) { flash("บันทึก key ไม่สำเร็จ", "warn"); }
+  };
 
   // evolution celebration: when the dragon crosses into a higher tier
   const tierOf = (n) => (n >= 1000 ? 3 : n >= 100 ? 2 : n >= 20 ? 1 : 0);
@@ -500,6 +518,7 @@ export default function App() {
             <div className="side-foot">
               <button className="side-link" onClick={() => setDataOpen(true)}><Cloud size={18} /> ตั้งค่า & สำรองข้อมูล</button>
               <button className="side-link" onClick={logout}><LogOut size={18} /> ออกจากระบบ</button>
+              <div className="credit">Designed by <b>TQx</b></div>
             </div>
           </aside>
           <main className="dmain desktop">
@@ -534,7 +553,7 @@ export default function App() {
         <DetailSheet book={detail} cats={cats} onClose={() => setDetailId(null)} onUpdate={(patch) => updateBook(detail.id, patch)} onDelete={() => deleteBook(detail.id)} />
       )}
       {user && dataOpen && (
-        <DataSheet books={books} name={meta.name} onSaveName={saveName} onClose={() => setDataOpen(false)} onImport={importBooks} flash={flash} />
+        <DataSheet books={books} name={meta.name} onSaveName={saveName} apiKey={meta.apiKey} onSaveKey={saveApiKey} onClose={() => setDataOpen(false)} onImport={importBooks} flash={flash} />
       )}
 
       {toast && <div className={"toast " + toast.type}>{toast.msg}</div>}
@@ -1296,7 +1315,7 @@ function toCSV(books) {
   return "\uFEFF" + [head, ...rows].join("\n"); // BOM so Thai opens correctly in Excel
 }
 
-function DataSheet({ books, onClose, onImport, flash, name, onSaveName }) {
+function DataSheet({ books, onClose, onImport, flash, name, onSaveName, apiKey, onSaveKey }) {
   const [paste, setPaste] = useState("");
   const fileRef = useRef(null);
   const stamp = new Date().toISOString().slice(0, 10);
@@ -1361,13 +1380,16 @@ function DataSheet({ books, onClose, onImport, flash, name, onSaveName }) {
       {!window.storage && (
         <div style={{ marginTop: 22, borderTop: "1px solid var(--line)", paddingTop: 16 }}>
           <label className="lbl">เชื่อม AI — ใส่ Anthropic API key ของคุณ</label>
-          <input className="cat-input" type="password" defaultValue={getApiKey()} placeholder="sk-ant-..."
-            onChange={(e) => { try { localStorage.setItem("anthropic_key", e.target.value.trim()); } catch (_) {} }} />
+          <input className="cat-input" type="password" defaultValue={apiKey || ""} placeholder="sk-ant-..."
+            onBlur={(e) => onSaveKey(e.target.value.trim())}
+            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
           <p className="hint" style={{ color: "var(--ink-soft)", margin: "2px 0 0" }}>
-            เปิดฟีเจอร์สแกนปก/เช็คเล่มต่อ คีย์เก็บในเครื่องนี้เท่านั้น (ระวัง: ใครเปิด console ในเครื่องนี้อาจเห็นได้)
+            เปิดฟีเจอร์สแกนปก/เช็คเล่มต่อ — คีย์เก็บแบบเข้ารหัสในบัญชีคุณ (Firebase) ซิงก์ทุกเครื่อง กรอกครั้งเดียวพอ
           </p>
         </div>
       )}
+
+      <div className="credit">Designed by <b>TQx</b></div>
     </Sheet>
   );
 }
@@ -1811,6 +1833,12 @@ input{font-family:var(--sans)}
   font-size:15px;background:var(--card);outline:none;color:var(--ink)}
 .price-edit input:focus{border-color:var(--primary)}
 .price-edit span{font-size:16px;font-weight:700;color:var(--ink-soft)}
+
+/* designer credit */
+.credit{text-align:center;font-size:12px;color:var(--ink-soft);letter-spacing:.3px;opacity:.85;
+  margin-top:14px;padding-top:4px}
+.credit b{color:var(--primary);font-weight:700;letter-spacing:.5px}
+.side-foot .credit{margin-top:10px;text-align:left;padding-left:4px}
 .side-nav{display:flex;flex-direction:column;gap:4px}
 .side-item{display:flex;align-items:center;gap:12px;border:none;background:none;cursor:pointer;
   padding:11px 13px;border-radius:12px;font-family:var(--sans);font-size:14.5px;font-weight:600;
