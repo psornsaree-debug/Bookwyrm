@@ -1,6 +1,6 @@
 {
-  "name": "ชั้นหนังสือ",
-  "short_name": "ชั้นหนังสือ",
+  "name": "Bookwyrm",
+  "short_name": "Bookwyrm",
   "description": "จัดการกองดองหนังสือ พร้อมมังกรเลี้ยงที่โตตามคลัง",
   "start_url": "./",
   "scope": "./",
