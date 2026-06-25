@@ -246,7 +246,6 @@ function AuthScreen() {
         </button>
         <div className="credit" style={{ marginTop: 16 }}>Designed by <b>TQx</b></div>
       </div>
-      <div className="credit">Designed by <b>TQx</b></div>
     </div>
   );
 }
