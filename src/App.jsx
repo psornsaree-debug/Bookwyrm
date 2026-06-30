@@ -3,7 +3,7 @@ import {
   Camera, Plus, Search, X, Check, BookOpen, Trash2, Loader2,
   Library, Sparkles, AlertTriangle, ChevronRight, Pencil, BookMarked,
   Cloud, Download, Upload, ClipboardCopy, CheckCircle2, BarChart3, LayoutGrid, PawPrint,
-  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags, ArrowUpDown, Star, CheckSquare,
+  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags, ArrowUpDown, Star, CheckSquare, CalendarDays,
 } from "lucide-react";
 import { auth, db } from "./firebase";
 import {
@@ -496,12 +496,13 @@ export default function App() {
     <div className="dash">
       <DragonHero books={books} dragonName={meta.dragonName} onRename={saveDragonName} />
       <div className="dash-bar">{statStrip}{valueBar}{searchBox}</div>
-      <YearInBooks books={books} baht={baht} />
       <CollectionScreen books={books} loading={loading} query={query} status={filter} sort={sort} setSort={setSort}
         onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")}
         selMode={selMode} sel={sel} onToggleSel={toggleSel} onEnterSel={enterSel} />
     </div>
   );
+
+  const yearPage = <div className="yearpage"><YearInBooks books={books} baht={baht} /></div>;
 
   const mobileBody = tab === "categories" ? catManager
     : tab === "stats" ? <StatsView counts={counts} books={books} value={value} baht={baht} dragonName={meta.dragonName} onRename={saveDragonName} onOpenData={() => setDataOpen(true)} onPick={(k) => { setFilter(k); setTab("library"); }} />
@@ -528,8 +529,11 @@ export default function App() {
               <div><b className="acct-name">{displayName}</b><small>ออกจากระบบ</small></div>
             </button>
             <nav className="side-nav">
-              <button className={"side-item" + (tab !== "categories" ? " on" : "")} onClick={() => setTab("library")}>
+              <button className={"side-item" + (tab !== "categories" && tab !== "year" ? " on" : "")} onClick={() => setTab("library")}>
                 <LayoutDashboard size={20} /><span>หน้าหลัก</span>
+              </button>
+              <button className={"side-item" + (tab === "year" ? " on" : "")} onClick={() => setTab("year")}>
+                <CalendarDays size={20} /><span>สรุปการอ่าน</span>
               </button>
               <button className={"side-item" + (tab === "categories" ? " on" : "")} onClick={() => setTab("categories")}>
                 <Tags size={20} /><span>หมวดหมู่</span>
@@ -543,8 +547,8 @@ export default function App() {
             </div>
           </aside>
           <main className="dmain desktop">
-            <div className="dmain-head"><h1>{tab === "categories" ? "จัดการหมวดหมู่" : "หน้าหลัก"}</h1></div>
-            {tab === "categories" ? catManager : dashboard}
+            <div className="dmain-head"><h1>{tab === "categories" ? "จัดการหมวดหมู่" : tab === "year" ? "สรุปการอ่าน" : "หน้าหลัก"}</h1></div>
+            {tab === "categories" ? catManager : tab === "year" ? yearPage : dashboard}
           </main>
         </div>
       ) : (
@@ -1046,15 +1050,26 @@ function CategoryManager({ cats, books, onAdd, onRename, onDelete, onBack }) {
 /*  Star rating                                                        */
 /* ------------------------------------------------------------------ */
 function Stars({ value = 0, onChange, big, small }) {
-  const cls = "stars" + (big ? " big" : "") + (small ? " small" : "");
+  const size = big ? 30 : small ? 14 : 19;
+  const set = (v) => onChange && onChange(v === value ? 0 : v);
   return (
-    <div className={cls}>
-      {[1, 2, 3, 4, 5].map((n) => (
-        <button key={n} type="button" disabled={!onChange} className={"star" + (n <= value ? " on" : "")}
-          onClick={(e) => { e.stopPropagation(); onChange && onChange(n === value ? 0 : n); }} aria-label={n + " ดาว"}>
-          <Star size={big ? 28 : small ? 13 : 18} fill={n <= value ? "currentColor" : "none"} />
-        </button>
-      ))}
+    <div className={"stars" + (big ? " big" : "") + (small ? " small" : "")}>
+      {[1, 2, 3, 4, 5].map((i) => {
+        const fill = Math.max(0, Math.min(1, value - (i - 1))); // 0..1 portion filled
+        return (
+          <span key={i} className="star-wrap" style={{ width: size, height: size }}>
+            <Star size={size} className="star-bg" fill="none" />
+            <span className="star-fg" style={{ width: fill * 100 + "%" }}><Star size={size} fill="currentColor" /></span>
+            {onChange && (
+              <>
+                <button type="button" className="star-hit l" onClick={(e) => { e.stopPropagation(); set(i - 0.5); }} aria-label={i - 0.5 + " ดาว"} />
+                <button type="button" className="star-hit r" onClick={(e) => { e.stopPropagation(); set(i); }} aria-label={i + " ดาว"} />
+              </>
+            )}
+          </span>
+        );
+      })}
+      {big && <span className="stars-num">{value ? value.toFixed(1) : "—"}</span>}
     </div>
   );
 }
@@ -1381,6 +1396,10 @@ function DetailSheet({ book, onClose, onUpdate, onDelete, cats }) {
           {book.finishedAt && <p className="hint" style={{ color: "var(--ink-soft)", margin: "6px 0 0" }}>อ่านจบเมื่อ {new Date(book.finishedAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}</p>}
         </>
       )}
+
+      <label className="lbl">รีวิว / บันทึกของฉัน</label>
+      <textarea className="review-box" defaultValue={book.review || book.note || ""} placeholder="เล่มนี้เป็นยังไงบ้าง? จดความรู้สึก ข้อคิด หรือสปอยล์ตัวเองไว้อ่านทีหลังได้เลย…"
+        onBlur={(e) => onUpdate({ review: e.target.value })} />
 
       <label className="lbl">ราคา (บาท)</label>
       <div className="price-edit">
@@ -1973,12 +1992,26 @@ input{font-family:var(--sans)}
 .credit b{color:var(--primary);font-weight:700;letter-spacing:.5px}
 .side-foot .credit{margin-top:10px;text-align:left;padding-left:4px}
 
-/* star rating */
-.stars{display:inline-flex;gap:3px;color:#E5B800}
-.stars .star{background:none;border:none;padding:0;cursor:pointer;color:#D8D5E0;display:grid;place-items:center}
-.stars .star.on{color:#E5B800}
-.stars .star:disabled{cursor:default}
-.stars.big{gap:8px}.stars.small{gap:1px;margin-top:4px}
+/* star rating (supports halves) */
+.stars{display:inline-flex;align-items:center;gap:3px;color:#E5B800}
+.star-wrap{position:relative;display:inline-block;line-height:0}
+.star-bg{color:#D8D5E0;display:block}
+.star-fg{position:absolute;left:0;top:0;height:100%;overflow:hidden;color:#E5B800;display:block;white-space:nowrap}
+.star-fg svg{display:block}
+.star-hit{position:absolute;top:0;height:100%;width:50%;background:none;border:none;padding:0;cursor:pointer;z-index:2}
+.star-hit.l{left:0}.star-hit.r{right:0}
+.stars.big{gap:5px}.stars.small{gap:1px;margin-top:4px}
+.stars-num{margin-left:8px;font-size:15px;font-weight:800;color:#E5B800}
+
+/* review textarea */
+.review-box{width:100%;min-height:96px;resize:vertical;border:1px solid var(--line);border-radius:13px;
+  padding:13px 14px;font-family:var(--sans);font-size:14.5px;line-height:1.55;background:var(--card);
+  color:var(--ink);outline:none;box-sizing:border-box}
+.review-box:focus{border-color:var(--primary)}
+
+/* full-page year summary */
+.yearpage{max-width:640px}
+.yearpage .yib{max-width:640px}
 
 /* Year in Books */
 .yib{background:linear-gradient(150deg,#6D5BFF,#5B4BF5);color:#fff;border-radius:20px;padding:18px 18px 20px;
@@ -2003,7 +2036,7 @@ input{font-family:var(--sans)}
   border-radius:11px;padding:9px 13px;font-size:13px}
 .yib-fact>span{opacity:.9}
 .yib-fact>b{font-weight:800;text-align:right}
-.yib-fact .stars{color:#FFD658}.yib-fact .stars .star.on{color:#FFD658}.yib-fact .stars .star{color:rgba(255,255,255,.4)}
+.yib-fact .star-fg{color:#FFD658}.yib-fact .star-bg{color:rgba(255,255,255,.35)}
 
 /* library tools row + select entry */
 .lib-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
