@@ -3,7 +3,7 @@ import {
   Camera, Plus, Search, X, Check, BookOpen, Trash2, Loader2,
   Library, Sparkles, AlertTriangle, ChevronRight, Pencil, BookMarked,
   Cloud, Download, Upload, ClipboardCopy, CheckCircle2, BarChart3, LayoutGrid, PawPrint,
-  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags, ArrowUpDown,
+  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags, ArrowUpDown, Star, CheckSquare,
 } from "lucide-react";
 import { auth, db } from "./firebase";
 import {
@@ -227,7 +227,7 @@ function AuthScreen() {
   return (
     <div className="login">
       <div className="login-card">
-        <div className="login-logo"><BookMarked size={22} /> Bookwyrm</div>
+        <div className="login-logo"><BookMarked size={22} /> Scale &amp; Scroll</div>
         <div className="login-sub">{mode === "up" ? "สร้างบัญชีเพื่อซิงก์ข้อมูลข้ามทุกเครื่อง" : "เข้าสู่ระบบเพื่อเปิดชั้นหนังสือของคุณ"}</div>
         <input className="login-input" type="email" value={email} placeholder="อีเมล" onChange={(e) => { setEmail(e.target.value); setErr(""); setOk(""); }} />
         <input className="login-input" type="password" value={pw} placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)"
@@ -263,6 +263,8 @@ export default function App() {
   const [dataOpen, setDataOpen] = useState(false);
   const [tab, setTab] = useState("library");
   const [sort, setSort] = useState("added");
+  const [selMode, setSelMode] = useState(false);
+  const [sel, setSel] = useState(() => new Set());
   const [toast, setToast] = useState(null);
   const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
   const [meta, setMeta] = useState({ name: "", cats: null, dragonName: "", lastTier: undefined, apiKey: "" });
@@ -352,6 +354,19 @@ export default function App() {
   };
   const logout = () => { signOut(auth); setTab("library"); setQuery(""); setFilter("all"); };
 
+  // multi-select delete
+  const enterSel = () => { setSelMode(true); setSel(new Set()); };
+  const exitSel = () => { setSelMode(false); setSel(new Set()); };
+  const toggleSel = (id) => setSel((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const deleteSelected = async () => {
+    if (!user || sel.size === 0) return;
+    const ids = [...sel];
+    exitSel();
+    let n = 0;
+    for (const id of ids) { try { await deleteDoc(doc(db, "users", user.uid, "books", id)); n++; } catch (e) {} }
+    flash(`ลบ ${n} เล่มแล้ว`);
+  };
+
   const saveName = async (name) => { if (!user) return; try { await setDoc(metaRef(), { name: (name || "").trim() }, { merge: true }); flash("บันทึกชื่อแล้ว"); } catch (e) { flash("บันทึกชื่อไม่สำเร็จ", "warn"); } };
   const saveCats = async (next) => { if (!user) return; try { await setDoc(metaRef(), { cats: next }, { merge: true }); } catch (e) { flash("บันทึกหมวดไม่สำเร็จ", "warn"); } };
   const addCat = (name) => { const n = (name || "").trim(); if (!n) return; if (cats.includes(n)) { flash("มีหมวดนี้แล้ว", "warn"); return; } saveCats([...cats, n]); };
@@ -439,9 +454,14 @@ export default function App() {
     <>
       {statStrip}
       {searchBox}
-      {filter !== "all" && (
-        <div className="filter-tag">แสดงเฉพาะ: <b>{STATUS[filter].full}</b><button onClick={() => setFilter("all")}><X size={13} /></button></div>
-      )}
+      <div className="lib-tools">
+        {filter !== "all" && (
+          <div className="filter-tag">แสดงเฉพาะ: <b>{STATUS[filter].full}</b><button onClick={() => setFilter("all")}><X size={13} /></button></div>
+        )}
+        {books.length > 0 && !selMode && (
+          <button className="select-btn" onClick={enterSel}><CheckSquare size={15} /> เลือกหลายเล่ม</button>
+        )}
+      </div>
       <div className="grid">
         {loading ? (
           <div className="empty"><Loader2 className="spin" /> กำลังเปิดคลัง…</div>
@@ -453,7 +473,7 @@ export default function App() {
             ) : (<p>ไม่พบเล่มที่ตรงกับที่ค้นหา</p>)}
           </div>
         ) : (
-          visible.map((b) => <BookCard key={b.id} book={b} onClick={() => setDetailId(b.id)} />)
+          visible.map((b) => <BookCard key={b.id} book={b} onClick={() => setDetailId(b.id)} selMode={selMode} selected={sel.has(b.id)} onToggle={toggleSel} />)
         )}
       </div>
     </>
@@ -476,17 +496,19 @@ export default function App() {
     <div className="dash">
       <DragonHero books={books} dragonName={meta.dragonName} onRename={saveDragonName} />
       <div className="dash-bar">{statStrip}{valueBar}{searchBox}</div>
+      <YearInBooks books={books} baht={baht} />
       <CollectionScreen books={books} loading={loading} query={query} status={filter} sort={sort} setSort={setSort}
-        onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")} />
+        onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")}
+        selMode={selMode} sel={sel} onToggleSel={toggleSel} onEnterSel={enterSel} />
     </div>
   );
 
   const mobileBody = tab === "categories" ? catManager
     : tab === "stats" ? <StatsView counts={counts} books={books} value={value} baht={baht} dragonName={meta.dragonName} onRename={saveDragonName} onOpenData={() => setDataOpen(true)} onPick={(k) => { setFilter(k); setTab("library"); }} />
-      : tab === "collection" ? <CollectionScreen books={books} loading={loading} status={filter} setStatus={setFilter} sort={sort} setSort={setSort} showStatusFilter onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")} />
+      : tab === "collection" ? <CollectionScreen books={books} loading={loading} status={filter} setStatus={setFilter} sort={sort} setSort={setSort} showStatusFilter onOpen={(id) => setDetailId(id)} onAdd={() => setAddOpen(true)} onManage={() => setTab("categories")} selMode={selMode} sel={sel} onToggleSel={toggleSel} onEnterSel={enterSel} />
         : libraryBody;
 
-  const mobileTitle = tab === "stats" ? "มังกรของฉัน" : tab === "collection" ? "คอลเลกชัน" : tab === "categories" ? "หมวดหมู่" : "Bookwyrm";
+  const mobileTitle = tab === "stats" ? "มังกรของฉัน" : tab === "collection" ? "คอลเลกชัน" : tab === "categories" ? "หมวดหมู่" : "Scale & Scroll";
 
   return (
     <div className={"root " + (isDesktop ? "desktop" : "mobile")}>
@@ -500,7 +522,7 @@ export default function App() {
         /* ---------- DESKTOP ---------- */
         <div className="dshell desktop">
           <aside className="sidebar">
-            <div className="side-brand"><BookMarked size={22} /> Bookwyrm</div>
+            <div className="side-brand"><BookMarked size={22} /> Scale &amp; Scroll</div>
             <button className="side-profile" onClick={logout}>
               {avatarBtn}
               <div><b className="acct-name">{displayName}</b><small>ออกจากระบบ</small></div>
@@ -553,6 +575,14 @@ export default function App() {
       )}
       {user && dataOpen && (
         <DataSheet books={books} name={meta.name} onSaveName={saveName} apiKey={meta.apiKey} onSaveKey={saveApiKey} onClose={() => setDataOpen(false)} onImport={importBooks} flash={flash} />
+      )}
+
+      {user && selMode && (
+        <div className="selbar">
+          <span className="selbar-n">{sel.size} เล่ม</span>
+          <button className="selbar-del" disabled={sel.size === 0} onClick={deleteSelected}><Trash2 size={16} /> ลบ</button>
+          <button className="selbar-cancel" onClick={exitSel}>ยกเลิก</button>
+        </div>
       )}
 
       {toast && <div className={"toast " + toast.type}>{toast.msg}</div>}
@@ -786,6 +816,7 @@ function StatsView({ counts, books, value, baht, dragonName, onRename, onOpenDat
           <div className="value-box dong"><span className="value-l">จมในกองดอง</span><span className="value-n">{baht(value.dong)}</span></div>
         </div>
       )}
+      <YearInBooks books={books} baht={baht} />
       <div className="dong">
         <div>
           <div className="dong-num">{counts.unread}</div>
@@ -844,7 +875,7 @@ function StatsView({ counts, books, value, baht, dragonName, onRename, onOpenDat
 /* ------------------------------------------------------------------ */
 /*  Collection screen — gallery shelves grouped by category            */
 /* ------------------------------------------------------------------ */
-function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = "all", setStatus, sort = "added", setSort, showStatusFilter = false, onManage }) {
+function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = "all", setStatus, sort = "added", setSort, showStatusFilter = false, onManage, selMode = false, sel, onToggleSel, onEnterSel }) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return books.filter((b) => {
@@ -894,6 +925,9 @@ function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = 
   const manageBtn = onManage ? (
     <button className="manage-btn" onClick={onManage}><Tags size={15} /> จัดการหมวด</button>
   ) : null;
+  const selectBtn = onEnterSel && !selMode ? (
+    <button className="manage-btn" onClick={onEnterSel}><CheckSquare size={15} /> เลือก</button>
+  ) : null;
 
   if (loading) return <div className="empty"><Loader2 className="spin" /> กำลังเปิดคลัง…</div>;
   if (books.length === 0) {
@@ -917,7 +951,7 @@ function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = 
       )}
       <div className="coll-head">
         <span className="coll-count">{filtered.length} เล่ม</span>
-        <div className="coll-tools">{sortControl}{manageBtn}</div>
+        <div className="coll-tools">{sortControl}{selectBtn}{manageBtn}</div>
       </div>
       {groups.length === 0 ? (
         <div className="empty"><BookOpen size={30} strokeWidth={1.4} /><p>ไม่พบเล่มที่ตรงกับที่ค้นหา</p></div>
@@ -930,11 +964,14 @@ function CollectionScreen({ books, loading, onOpen, onAdd, query = "", status = 
           <div className="shelf-row">
             {list.map((b) => {
               const s = STATUS[b.status] || STATUS.unread;
+              const picked = sel && sel.has(b.id);
               return (
-                <button className="shelf-item" key={b.id} onClick={() => onOpen(b.id)}>
+                <button className={"shelf-item" + (selMode ? " selmode" : "") + (picked ? " selected" : "")} key={b.id}
+                  onClick={() => (selMode ? onToggleSel(b.id) : onOpen(b.id))}>
                   <div className="shelf-cover" style={{ background: b.cover ? "#000" : spineColor(b.title) }}>
                     {b.cover ? <img src={b.cover} alt="" /> : <span>{b.title}</span>}
                     <i className="shelf-dot" style={{ background: s.color }} />
+                    {selMode && <span className={"sel-check" + (picked ? " on" : "")}>{picked ? <Check size={14} /> : null}</span>}
                   </div>
                   <div className="shelf-title">{b.title}</div>
                 </button>
@@ -1006,18 +1043,102 @@ function CategoryManager({ cats, books, onAdd, onRename, onDelete, onBack }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Star rating                                                        */
+/* ------------------------------------------------------------------ */
+function Stars({ value = 0, onChange, big, small }) {
+  const cls = "stars" + (big ? " big" : "") + (small ? " small" : "");
+  return (
+    <div className={cls}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button key={n} type="button" disabled={!onChange} className={"star" + (n <= value ? " on" : "")}
+          onClick={(e) => { e.stopPropagation(); onChange && onChange(n === value ? 0 : n); }} aria-label={n + " ดาว"}>
+          <Star size={big ? 28 : small ? 13 : 18} fill={n <= value ? "currentColor" : "none"} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Year in Books — yearly reading summary                             */
+/* ------------------------------------------------------------------ */
+function YearInBooks({ books, baht }) {
+  const finished = useMemo(() => books.filter((b) => b.status === "done" && b.finishedAt), [books]);
+  const years = useMemo(() => {
+    const set = new Set(finished.map((b) => new Date(b.finishedAt).getFullYear()));
+    set.add(new Date().getFullYear());
+    return [...set].sort((a, b) => b - a);
+  }, [finished]);
+  const [year, setYear] = useState(years[0]);
+  useEffect(() => { if (!years.includes(year)) setYear(years[0]); }, [years]); // keep selection valid
+
+  const data = useMemo(() => {
+    const inYear = finished.filter((b) => new Date(b.finishedAt).getFullYear() === year);
+    const pages = inYear.reduce((s, b) => s + (Number(b.totalPages) || 0), 0);
+    const months = Array(12).fill(0);
+    inYear.forEach((b) => { months[new Date(b.finishedAt).getMonth()]++; });
+    const catCount = {};
+    inYear.forEach((b) => { const c = (b.category || "").trim(); if (c) catCount[c] = (catCount[c] || 0) + 1; });
+    const topCat = Object.entries(catCount).sort((a, b) => b[1] - a[1])[0];
+    const topBook = [...inYear].filter((b) => b.rating).sort((a, b) => (b.rating || 0) - (a.rating || 0))[0];
+    return { count: inYear.length, pages, months, topCat, topBook, max: Math.max(1, ...months) };
+  }, [finished, year]);
+
+  const MON = ["ม.ค", "ก.พ", "มี.ค", "เม.ย", "พ.ค", "มิ.ย", "ก.ค", "ส.ค", "ก.ย", "ต.ค", "พ.ย", "ธ.ค"];
+
+  return (
+    <div className="yib">
+      <div className="yib-head">
+        <h3>📚 สรุปการอ่านปี</h3>
+        <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
+          {years.map((y) => <option key={y} value={y}>{y + 543}</option>)}
+        </select>
+      </div>
+      {data.count === 0 ? (
+        <p className="yib-empty">ยังไม่มีเล่มที่อ่านจบในปีนี้ — กดเล่มเป็น “อ่านจบ” แล้วมันจะมาโผล่ที่นี่</p>
+      ) : (
+        <>
+          <div className="yib-big">
+            <div><span className="yib-n">{data.count}</span><span className="yib-l">เล่มที่อ่านจบ</span></div>
+            <div><span className="yib-n">{data.pages.toLocaleString("th-TH")}</span><span className="yib-l">หน้าทั้งหมด</span></div>
+          </div>
+          <div className="yib-months">
+            {data.months.map((c, i) => (
+              <div key={i} className="yib-col" title={MON[i] + " · " + c + " เล่ม"}>
+                <div className="yib-bar"><span style={{ height: (c / data.max) * 100 + "%" }} /></div>
+                <small>{MON[i][0]}</small>
+              </div>
+            ))}
+          </div>
+          <div className="yib-facts">
+            {data.topCat && <div className="yib-fact"><span>แนวที่อ่านเยอะสุด</span><b>{data.topCat[0]} ({data.topCat[1]})</b></div>}
+            {data.topBook && (
+              <div className="yib-fact"><span>เล่มที่ให้ดาวสูงสุด</span>
+                <b style={{ display: "flex", alignItems: "center", gap: 6 }}>{data.topBook.title} <Stars value={data.topBook.rating} small /></b>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Book card                                                          */
 /* ------------------------------------------------------------------ */
-function BookCard({ book, onClick }) {
+function BookCard({ book, onClick, selMode, selected, onToggle }) {
   const s = STATUS[book.status] || STATUS.unread;
   const pct = book.totalPages ? Math.min(100, Math.round((book.currentPage / book.totalPages) * 100)) : 0;
   return (
-    <button className="card" onClick={onClick}>
+    <button className={"card" + (selMode ? " selmode" : "") + (selected ? " selected" : "")}
+      onClick={() => (selMode ? onToggle(book.id) : onClick())}>
       <div className="cover" style={{ background: book.cover ? "#000" : spineColor(book.title) }}>
         {book.cover
           ? <img src={book.cover} alt="" />
           : <span className="cover-t">{book.title}</span>}
         <span className="badge" style={{ background: s.color }}>{s.label}</span>
+        {selMode && <span className={"sel-check" + (selected ? " on" : "")}>{selected ? <Check size={15} /> : null}</span>}
       </div>
       <div className="card-body">
         <div className="card-title">{book.title}</div>
@@ -1027,6 +1148,7 @@ function BookCard({ book, onClick }) {
             {book.series}{book.volume ? ` · เล่ม ${book.volume}` : ""}
           </div>
         )}
+        {book.status === "done" && book.rating > 0 && <Stars value={book.rating} small />}
         {book.status === "reading" && book.totalPages > 0 && (
           <div className="mini-bar"><span style={{ width: pct + "%" }} /></div>
         )}
@@ -1113,6 +1235,7 @@ function AddSheet({ books, onClose, onSave, cats }) {
       price: parseFloat(f.price) || 0,
       currentPage: f.status === "done" && f.totalPages ? parseInt(f.totalPages) : 0,
       status: f.status,
+      finishedAt: f.status === "done" ? Date.now() : null,
       cover: f.cover,
       category: f.category.trim(),
       note: "",
@@ -1189,6 +1312,7 @@ function DetailSheet({ book, onClose, onUpdate, onDelete, cats }) {
   function setStatus(k) {
     const patch = { status: k };
     if (k === "done" && book.totalPages) patch.currentPage = book.totalPages;
+    if (k === "done" && !book.finishedAt) patch.finishedAt = Date.now();
     if (k === "unread") patch.currentPage = 0;
     onUpdate(patch);
   }
@@ -1249,6 +1373,14 @@ function DetailSheet({ book, onClose, onUpdate, onDelete, cats }) {
 
       <label className="lbl">หมวดหมู่</label>
       <CategoryPicker value={cat} set={setCat} commit={(v) => onUpdate({ category: (v || "").trim() })} cats={cats} />
+
+      {book.status === "done" && (
+        <>
+          <label className="lbl">ให้คะแนนเล่มนี้</label>
+          <Stars value={book.rating || 0} onChange={(r) => onUpdate({ rating: r })} big />
+          {book.finishedAt && <p className="hint" style={{ color: "var(--ink-soft)", margin: "6px 0 0" }}>อ่านจบเมื่อ {new Date(book.finishedAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" })}</p>}
+        </>
+      )}
 
       <label className="lbl">ราคา (บาท)</label>
       <div className="price-edit">
@@ -1840,6 +1972,63 @@ input{font-family:var(--sans)}
   margin-top:14px;padding-top:4px}
 .credit b{color:var(--primary);font-weight:700;letter-spacing:.5px}
 .side-foot .credit{margin-top:10px;text-align:left;padding-left:4px}
+
+/* star rating */
+.stars{display:inline-flex;gap:3px;color:#E5B800}
+.stars .star{background:none;border:none;padding:0;cursor:pointer;color:#D8D5E0;display:grid;place-items:center}
+.stars .star.on{color:#E5B800}
+.stars .star:disabled{cursor:default}
+.stars.big{gap:8px}.stars.small{gap:1px;margin-top:4px}
+
+/* Year in Books */
+.yib{background:linear-gradient(150deg,#6D5BFF,#5B4BF5);color:#fff;border-radius:20px;padding:18px 18px 20px;
+  box-shadow:0 14px 34px rgba(91,75,245,.28);max-width:540px}
+.yib-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.yib-head h3{margin:0;font-size:16px;font-weight:800}
+.yib-head select{background:rgba(255,255,255,.18);border:none;color:#fff;font-family:var(--sans);font-weight:700;
+  font-size:13px;border-radius:9px;padding:5px 8px;outline:none;cursor:pointer}
+.yib-head select option{color:#222}
+.yib-empty{font-size:13.5px;opacity:.92;line-height:1.6;margin:4px 0 0}
+.yib-big{display:flex;gap:14px;margin-bottom:16px}
+.yib-big>div{flex:1;background:rgba(255,255,255,.14);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.yib-n{font-size:26px;font-weight:800;letter-spacing:-.5px}
+.yib-l{font-size:12px;opacity:.9}
+.yib-months{display:flex;gap:4px;align-items:flex-end;height:54px;margin-bottom:14px}
+.yib-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%}
+.yib-bar{flex:1;width:100%;display:flex;align-items:flex-end;background:rgba(255,255,255,.12);border-radius:4px;overflow:hidden}
+.yib-bar span{display:block;width:100%;background:#FFD658;border-radius:4px;min-height:2px}
+.yib-col small{font-size:9px;opacity:.75}
+.yib-facts{display:flex;flex-direction:column;gap:8px}
+.yib-fact{display:flex;align-items:center;justify-content:space-between;gap:10px;background:rgba(255,255,255,.12);
+  border-radius:11px;padding:9px 13px;font-size:13px}
+.yib-fact>span{opacity:.9}
+.yib-fact>b{font-weight:800;text-align:right}
+.yib-fact .stars{color:#FFD658}.yib-fact .stars .star.on{color:#FFD658}.yib-fact .stars .star{color:rgba(255,255,255,.4)}
+
+/* library tools row + select entry */
+.lib-tools{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.lib-tools:empty{display:none}
+.select-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card);
+  color:var(--ink-soft);border-radius:10px;padding:8px 12px;font-family:var(--sans);font-size:13px;font-weight:600;cursor:pointer;margin-left:auto}
+.select-btn:hover{color:var(--primary);border-color:var(--primary)}
+
+/* selection mode */
+.card.selmode,.shelf-item.selmode{position:relative}
+.card.selected .cover,.shelf-item.selected .shelf-cover{outline:3px solid var(--primary);outline-offset:2px}
+.sel-check{position:absolute;top:6px;left:6px;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.9);
+  border:2px solid var(--primary);display:grid;place-items:center;color:var(--primary)}
+.sel-check.on{background:var(--primary);color:#fff}
+
+/* selection action bar */
+.selbar{position:fixed;bottom:96px;left:50%;transform:translateX(-50%);z-index:40;display:flex;align-items:center;gap:12px;
+  background:var(--ink);color:#fff;border-radius:16px;padding:11px 14px;box-shadow:0 16px 40px rgba(0,0,0,.28)}
+.desktop .selbar{bottom:28px}
+.selbar-n{font-size:14px;font-weight:700;padding-left:4px}
+.selbar-del{display:inline-flex;align-items:center;gap:6px;background:#FF5A4A;color:#fff;border:none;border-radius:11px;
+  padding:9px 16px;font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer}
+.selbar-del:disabled{opacity:.45;cursor:default}
+.selbar-cancel{background:rgba(255,255,255,.15);color:#fff;border:none;border-radius:11px;padding:9px 14px;
+  font-family:var(--sans);font-size:14px;font-weight:600;cursor:pointer}
 .side-nav{display:flex;flex-direction:column;gap:4px}
 .side-item{display:flex;align-items:center;gap:12px;border:none;background:none;cursor:pointer;
   padding:11px 13px;border-radius:12px;font-family:var(--sans);font-size:14.5px;font-weight:600;
