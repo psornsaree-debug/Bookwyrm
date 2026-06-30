@@ -3,13 +3,13 @@ import {
   Camera, Plus, Search, X, Check, BookOpen, Trash2, Loader2,
   Library, Sparkles, AlertTriangle, ChevronRight, Pencil, BookMarked,
   Cloud, Download, Upload, ClipboardCopy, CheckCircle2, BarChart3, LayoutGrid, PawPrint,
-  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags, ArrowUpDown, Star, CheckSquare, CalendarDays,
+  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags, ArrowUpDown, Star, CheckSquare, CalendarDays, Share2,
 } from "lucide-react";
 import { auth, db } from "./firebase";
 import {
   onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail,
 } from "firebase/auth";
-import { collection, doc, onSnapshot, setDoc, deleteDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, setDoc, deleteDoc, getDoc, getDocs } from "firebase/firestore";
 
 /* ------------------------------------------------------------------ */
 /*  storage wrapper — uses persistent window.storage, falls back to RAM */
@@ -250,6 +250,164 @@ function AuthScreen() {
   );
 }
 
+const DEFAULT_SHOW = { books: true, covers: true, ratings: true, reviews: false, stats: true };
+
+/* ================================================================== */
+/*  Public profile — read-only shared shelf (works logged-out)        */
+/* ================================================================== */
+function useHashRoute() {
+  const parse = () => { const m = (window.location.hash || "").match(/^#\/u\/([A-Za-z0-9_]+)/); return m ? m[1].toLowerCase() : null; };
+  const [r, setR] = useState(parse);
+  useEffect(() => { const f = () => setR(parse()); window.addEventListener("hashchange", f); return () => window.removeEventListener("hashchange", f); }, []);
+  return r;
+}
+
+function PublicProfile({ username }) {
+  const [st, setSt] = useState({ loading: true });
+  const [open, setOpen] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const uref = await getDoc(doc(db, "usernames", username));
+        if (!uref.exists()) return alive && setSt({ loading: false, notFound: true });
+        const uid = uref.data().uid;
+        const pref = await getDoc(doc(db, "public", uid));
+        if (!pref.exists()) return alive && setSt({ loading: false, notFound: true });
+        const p = pref.data();
+        if (p.enabled === false) return alive && setSt({ loading: false, off: true });
+        let books = [];
+        if (p.show && p.show.books) {
+          const snap = await getDocs(collection(db, "public", uid, "books"));
+          books = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.order || 0) - (b.order || 0));
+        }
+        alive && setSt({ loading: false, p, books });
+      } catch (e) { alive && setSt({ loading: false, error: true }); }
+    })();
+    return () => { alive = false; };
+  }, [username]);
+
+  const goApp = () => { window.location.hash = ""; window.location.reload(); };
+
+  if (st.loading) return (<><style>{CSS}</style><div className="pub-load"><Loader2 className="spin" size={28} /></div></>);
+  if (st.notFound || st.error) return (<><style>{CSS}</style><div className="pub-msg"><h2>ไม่พบหน้านี้</h2><p>ลิงก์อาจผิด หรือเจ้าของยังไม่ได้เปิดแชร์</p><button className="btn-primary" onClick={goApp}>ไปหน้าแอป</button></div></>);
+  if (st.off) return (<><style>{CSS}</style><div className="pub-msg"><h2>ปิดการแชร์อยู่</h2><p>เจ้าของชั้นหนังสือนี้ปิดการแชร์ชั่วคราว</p><button className="btn-primary" onClick={goApp}>ไปหน้าแอป</button></div></>);
+
+  const p = st.p, show = p.show || {}, books = st.books || [];
+  return (
+    <>
+      <style>{CSS}</style>
+      <div className="pub">
+        <div className="pub-card">
+          <header className="pub-head">
+            <div className="pub-dragon"><Dragon k={p.dragonK || "baby"} size={118} /></div>
+            {p.dragonName && <div className="pub-petname">{p.dragonName}</div>}
+            <h1 className="pub-name">{p.displayName || username}</h1>
+            <div className="pub-handle">@{username}</div>
+            <div className="pub-counts">
+              <span><b>{p.total || 0}</b> เล่ม</span>
+              <span><b>{p.done || 0}</b> อ่านจบ</span>
+              {show.stats && <span><b>{p.unread || 0}</b> ดอง</span>}
+            </div>
+          </header>
+
+          {show.books && books.length > 0 && (
+            <div className="pub-grid">
+              {books.map((b) => {
+                const s = STATUS[b.status] || STATUS.unread;
+                const clickable = (show.reviews && b.review) || (show.ratings && b.rating);
+                return (
+                  <button className="pub-book" key={b.id} onClick={() => clickable && setOpen(b)}>
+                    <div className="pub-cover" style={{ background: (show.covers && b.cover) ? "#000" : spineColor(b.title) }}>
+                      {show.covers && b.cover ? <img src={b.cover} alt="" /> : <span>{b.title}</span>}
+                      <i className="shelf-dot" style={{ background: s.color }} />
+                    </div>
+                    <div className="pub-title">{b.title}</div>
+                    {show.ratings && b.rating > 0 && <Stars value={b.rating} small />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          {show.books && books.length === 0 && <p className="pub-empty">ยังไม่มีหนังสือที่เปิดให้ดู</p>}
+
+          <footer className="pub-foot">
+            <button className="pub-cta" onClick={goApp}>📚 สร้างชั้นหนังสือของคุณเองที่ Scale &amp; Scroll</button>
+          </footer>
+        </div>
+      </div>
+
+      {open && (
+        <div className="pub-modal" onClick={() => setOpen(null)}>
+          <div className="pub-modal-card" onClick={(e) => e.stopPropagation()}>
+            <button className="pub-x" onClick={() => setOpen(null)}><X size={20} /></button>
+            <h3>{open.title}</h3>
+            {open.author && <p className="pub-modal-sub">{open.author}</p>}
+            {show.ratings && open.rating > 0 && <Stars value={open.rating} />}
+            {show.reviews && open.review && <p className="pub-review">{open.review}</p>}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Share sheet — set username, choose what to show, publish          */
+/* ------------------------------------------------------------------ */
+function ShareSheet({ username, share, baseUrl, onClaim, onToggle, onSetShow, onPublish, onClose }) {
+  const [name, setName] = useState(username || "");
+  const [busy, setBusy] = useState(false);
+  const show = share.show || DEFAULT_SHOW;
+  const link = username ? `${baseUrl}#/u/${username}` : "";
+  const SHOWS = [["books", "รายการหนังสือ"], ["covers", "รูปปก"], ["ratings", "ดาวที่ให้"], ["reviews", "รีวิว"], ["stats", "สถิติการอ่าน"]];
+  const copy = async () => { try { await navigator.clipboard.writeText(link); } catch (e) {} };
+  const claim = async () => { setBusy(true); await onClaim(name); setBusy(false); };
+
+  return (
+    <Sheet title="แชร์ชั้นหนังสือ" onClose={onClose}>
+      <label className="lbl">ชื่อผู้ใช้ (สำหรับลิงก์)</label>
+      <div className="uname-row">
+        <span className="uname-at">@</span>
+        <input className="cat-input" style={{ margin: 0, flex: 1 }} value={name} placeholder="เช่น toothmore"
+          onChange={(e) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))} maxLength={20} />
+        <button className="btn-sm" disabled={busy || name.length < 3} onClick={claim}>{busy ? "…" : "ใช้ชื่อนี้"}</button>
+      </div>
+      <p className="hint" style={{ color: "var(--ink-soft)", margin: "2px 0 16px" }}>a-z, 0-9, _ เท่านั้น · 3-20 ตัว</p>
+
+      {username && (
+        <>
+          <div className="share-toggle">
+            <div><b>เปิดให้คนอื่นดู</b><small>{share.enabled ? "กำลังเปิดสาธารณะ" : "ปิดอยู่ (มีแค่คุณเห็น)"}</small></div>
+            <button className={"switch" + (share.enabled ? " on" : "")} onClick={() => onToggle(!share.enabled)}><i /></button>
+          </div>
+
+          <label className="lbl">เลือกสิ่งที่จะโชว์</label>
+          <div className="show-list">
+            {SHOWS.map(([k, l]) => (
+              <button key={k} className={"show-item" + (show[k] ? " on" : "")} onClick={() => onSetShow(k, !show[k])}>
+                <span>{l}</span>{show[k] ? <Check size={16} /> : <span className="show-off" />}
+              </button>
+            ))}
+          </div>
+          <p className="hint" style={{ color: "var(--ink-soft)", margin: "8px 0 16px" }}>💰 ราคา/มูลค่าถูกซ่อนเสมอ ไม่มีทางโชว์ให้คนอื่นเห็น</p>
+
+          <button className="btn-primary big" onClick={onPublish}><Cloud size={18} /> อัปเดตหน้าสาธารณะ</button>
+
+          {share.enabled && link && (
+            <div className="link-box">
+              <input readOnly value={link} onFocus={(e) => e.target.select()} />
+              <button className="btn-sm" onClick={copy}>คัดลอก</button>
+              <a className="btn-sm linkbtn" href={link} target="_blank" rel="noreferrer">เปิด</a>
+            </div>
+          )}
+        </>
+      )}
+    </Sheet>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  App                                                                */
 /* ------------------------------------------------------------------ */
@@ -267,7 +425,9 @@ export default function App() {
   const [sel, setSel] = useState(() => new Set());
   const [toast, setToast] = useState(null);
   const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
-  const [meta, setMeta] = useState({ name: "", cats: null, dragonName: "", lastTier: undefined, apiKey: "" });
+  const [meta, setMeta] = useState({ name: "", cats: null, dragonName: "", lastTier: undefined, apiKey: "", username: "", share: { enabled: false, show: DEFAULT_SHOW } });
+  const [shareOpen, setShareOpen] = useState(false);
+  const route = useHashRoute();
   const isDesktop = useIsDesktop();
 
   useEffect(() => onAuthStateChanged(auth, (u) => setUser(u || null)), []);
@@ -295,7 +455,7 @@ export default function App() {
 
   // live profile + category list
   useEffect(() => {
-    if (!user) { setMeta({ name: "", cats: null, dragonName: "", lastTier: undefined, apiKey: "" }); return; }
+    if (!user) { setMeta({ name: "", cats: null, dragonName: "", lastTier: undefined, apiKey: "", username: "", share: { enabled: false, show: DEFAULT_SHOW } }); return; }
     const ref = doc(db, "users", user.uid, "meta", "app");
     const unsub = onSnapshot(ref, (snap) => {
       const d = snap.exists() ? snap.data() : {};
@@ -305,6 +465,8 @@ export default function App() {
         dragonName: d.dragonName || "",
         lastTier: typeof d.lastTier === "number" ? d.lastTier : undefined,
         apiKey: d.apiKey || "",
+        username: d.username || "",
+        share: d.share && typeof d.share === "object" ? { enabled: !!d.share.enabled, show: { ...DEFAULT_SHOW, ...(d.share.show || {}) } } : { enabled: false, show: DEFAULT_SHOW },
       });
       // mirror key to localStorage so callClaude() can read it synchronously
       try {
@@ -387,6 +549,62 @@ export default function App() {
     try { localStorage.setItem("anthropic_key", k); } catch (e) {}
     if (!user) return;
     try { await setDoc(metaRef(), { apiKey: k }, { merge: true }); flash(k ? "บันทึก API key แล้ว — ซิงก์ทุกเครื่อง" : "ลบ API key แล้ว"); } catch (e) { flash("บันทึก key ไม่สำเร็จ", "warn"); }
+  };
+
+  // ---- public sharing ----
+  const baseUrl = window.location.origin + window.location.pathname;
+  const claimUsername = async (raw) => {
+    const name = (raw || "").toLowerCase().replace(/[^a-z0-9_]/g, "");
+    if (name.length < 3) { flash("ชื่อต้องยาว 3–20 ตัว", "warn"); return; }
+    if (!user) return;
+    if (name === meta.username) { flash("ใช้ชื่อนี้อยู่แล้ว"); return; }
+    try {
+      const ex = await getDoc(doc(db, "usernames", name));
+      if (ex.exists() && ex.data().uid !== user.uid) { flash("ชื่อนี้มีคนใช้แล้ว ลองชื่ออื่น", "warn"); return; }
+      if (meta.username && meta.username !== name) { try { await deleteDoc(doc(db, "usernames", meta.username)); } catch (e) {} }
+      await setDoc(doc(db, "usernames", name), { uid: user.uid });
+      await setDoc(metaRef(), { username: name }, { merge: true });
+      flash("ตั้งชื่อผู้ใช้แล้ว: @" + name);
+    } catch (e) { flash("ตั้งชื่อไม่สำเร็จ", "warn"); }
+  };
+  const toggleShare = async (on) => {
+    if (on && !meta.username) { flash("ตั้งชื่อผู้ใช้ก่อนเปิดแชร์", "warn"); return; }
+    const share = { enabled: on, show: meta.share.show || DEFAULT_SHOW };
+    try { await setDoc(metaRef(), { share }, { merge: true }); } catch (e) {}
+    if (user) { try { await setDoc(doc(db, "public", user.uid), { enabled: on }, { merge: true }); } catch (e) {} }
+    flash(on ? "เปิดแชร์แล้ว — อย่าลืมกด “อัปเดตหน้าสาธารณะ”" : "ปิดแชร์แล้ว");
+  };
+  const setShow = async (key, val) => {
+    const share = { enabled: meta.share.enabled, show: { ...(meta.share.show || DEFAULT_SHOW), [key]: val } };
+    try { await setDoc(metaRef(), { share }, { merge: true }); } catch (e) {}
+  };
+  const publishProfile = async () => {
+    if (!user) return;
+    if (!meta.username) { flash("ตั้งชื่อผู้ใช้ก่อน", "warn"); return; }
+    const show = meta.share.show || DEFAULT_SHOW;
+    const d = getDragon(books);
+    try {
+      await setDoc(doc(db, "public", user.uid), {
+        username: meta.username, displayName, dragonName: meta.dragonName || "", dragonK: d.k,
+        total: books.length, unread: counts.unread, done: counts.done,
+        show, enabled: !!meta.share.enabled, updatedAt: Date.now(),
+      });
+      const col = collection(db, "public", user.uid, "books");
+      const existing = await getDocs(col);
+      const keep = new Set();
+      let order = 0;
+      for (const b of books) {
+        keep.add(b.id);
+        const rec = { title: b.title || "", author: b.author || "", series: b.series || "", volume: b.volume || "", status: b.status || "unread", category: b.category || "", order: order++ };
+        if (show.covers && b.cover) rec.cover = b.cover;
+        if (show.ratings && b.rating) rec.rating = b.rating;
+        if (show.reviews && (b.review || b.note)) rec.review = b.review || b.note;
+        await setDoc(doc(col, b.id), rec);
+      }
+      for (const ds of existing.docs) { if (!keep.has(ds.id)) { try { await deleteDoc(ds.ref); } catch (e) {} } }
+      flash("อัปเดตหน้าสาธารณะแล้ว ✨");
+      setShareOpen(false);
+    } catch (e) { flash("อัปเดตไม่สำเร็จ ลองใหม่", "warn"); }
   };
 
   // evolution celebration: when the dragon crosses into a higher tier
@@ -511,6 +729,8 @@ export default function App() {
 
   const mobileTitle = tab === "stats" ? "มังกรของฉัน" : tab === "collection" ? "คอลเลกชัน" : tab === "categories" ? "หมวดหมู่" : "Scale & Scroll";
 
+  if (route) return <PublicProfile username={route} />;
+
   return (
     <div className={"root " + (isDesktop ? "desktop" : "mobile")}>
       <style>{CSS}</style>
@@ -541,6 +761,7 @@ export default function App() {
             </nav>
             <button className="side-add" onClick={() => setAddOpen(true)}><Plus size={18} /> เพิ่มหนังสือ</button>
             <div className="side-foot">
+              <button className="side-link" onClick={() => setShareOpen(true)}><Share2 size={18} /> แชร์ชั้นหนังสือ</button>
               <button className="side-link" onClick={() => setDataOpen(true)}><Cloud size={18} /> ตั้งค่า & สำรองข้อมูล</button>
               <button className="side-link" onClick={logout}><LogOut size={18} /> ออกจากระบบ</button>
               <div className="credit">Designed by <b>TQx</b></div>
@@ -578,7 +799,11 @@ export default function App() {
         <DetailSheet book={detail} cats={cats} onClose={() => setDetailId(null)} onUpdate={(patch) => updateBook(detail.id, patch)} onDelete={() => deleteBook(detail.id)} />
       )}
       {user && dataOpen && (
-        <DataSheet books={books} name={meta.name} onSaveName={saveName} apiKey={meta.apiKey} onSaveKey={saveApiKey} onClose={() => setDataOpen(false)} onImport={importBooks} flash={flash} />
+        <DataSheet books={books} name={meta.name} onSaveName={saveName} apiKey={meta.apiKey} onSaveKey={saveApiKey} onShare={() => { setDataOpen(false); setShareOpen(true); }} onClose={() => setDataOpen(false)} onImport={importBooks} flash={flash} />
+      )}
+      {user && shareOpen && (
+        <ShareSheet username={meta.username} share={meta.share} baseUrl={baseUrl}
+          onClaim={claimUsername} onToggle={toggleShare} onSetShow={setShow} onPublish={publishProfile} onClose={() => setShareOpen(false)} />
       )}
 
       {user && selMode && (
@@ -1465,7 +1690,7 @@ function toCSV(books) {
   return "\uFEFF" + [head, ...rows].join("\n"); // BOM so Thai opens correctly in Excel
 }
 
-function DataSheet({ books, onClose, onImport, flash, name, onSaveName, apiKey, onSaveKey }) {
+function DataSheet({ books, onClose, onImport, flash, name, onSaveName, apiKey, onSaveKey, onShare }) {
   const [paste, setPaste] = useState("");
   const fileRef = useRef(null);
   const stamp = new Date().toISOString().slice(0, 10);
@@ -1499,6 +1724,10 @@ function DataSheet({ books, onClose, onImport, flash, name, onSaveName, apiKey, 
       <input className="cat-input" defaultValue={name} placeholder="ตั้งชื่อของคุณ (ใช้แทนอีเมล)"
         onBlur={(e) => onSaveName(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} />
+
+      {onShare && (
+        <button className="share-entry" onClick={onShare}><Share2 size={18} /> แชร์ชั้นหนังสือให้คนอื่นดู</button>
+      )}
 
       <div className="data-note">
         <Cloud size={18} />
@@ -2012,6 +2241,62 @@ input{font-family:var(--sans)}
 /* full-page year summary */
 .yearpage{max-width:640px}
 .yearpage .yib{max-width:640px}
+
+/* share sheet */
+.share-entry{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;border:none;
+  background:var(--primary);color:#fff;border-radius:13px;padding:14px;font-family:var(--sans);font-size:15px;
+  font-weight:700;cursor:pointer;margin-bottom:18px;box-shadow:0 8px 20px rgba(91,75,245,.25)}
+.uname-row{display:flex;align-items:center;gap:8px}
+.uname-at{font-size:18px;font-weight:800;color:var(--ink-soft)}
+.share-toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--card);
+  border:1px solid var(--line);border-radius:14px;padding:13px 15px;margin-bottom:18px;box-shadow:var(--sh)}
+.share-toggle b{font-size:14.5px}.share-toggle small{display:block;color:var(--ink-soft);font-size:12px;margin-top:2px}
+.switch{width:48px;height:28px;border-radius:999px;border:none;background:#D8D5E0;position:relative;cursor:pointer;flex:none;transition:background .2s}
+.switch i{position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.switch.on{background:var(--green)}.switch.on i{left:23px}
+.show-list{display:flex;flex-direction:column;gap:8px}
+.show-item{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);background:var(--card);
+  border-radius:12px;padding:12px 15px;font-family:var(--sans);font-size:14px;font-weight:600;color:var(--ink-soft);cursor:pointer}
+.show-item.on{border-color:var(--primary);color:var(--ink);background:#F3F1FF}
+.show-item .show-off{width:16px}
+.show-item.on svg{color:var(--primary)}
+.link-box{display:flex;gap:8px;margin-top:14px}
+.link-box input{flex:1;border:1px solid var(--line);border-radius:11px;padding:11px 13px;font-size:13px;
+  background:var(--bg);color:var(--ink);outline:none}
+.link-box .linkbtn{display:inline-flex;align-items:center;text-decoration:none}
+
+/* public profile page */
+.pub-load{min-height:100dvh;display:grid;place-items:center;background:var(--bg);color:var(--primary)}
+.pub-msg{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+  text-align:center;padding:30px;background:var(--bg)}
+.pub-msg h2{margin:0;font-size:22px}.pub-msg p{margin:0;color:var(--ink-soft)}
+.pub{min-height:100dvh;background:radial-gradient(120% 60% at 50% 0%, #EEEAFF 0%, var(--bg) 50%);padding:28px 16px 60px}
+.pub-card{max-width:680px;margin:0 auto}
+.pub-head{text-align:center;margin-bottom:26px}
+.pub-dragon{display:flex;justify-content:center}
+.pub-petname{font-size:16px;font-weight:800;color:var(--ink);margin-top:4px}
+.pub-name{margin:6px 0 2px;font-size:26px;font-weight:800;letter-spacing:-.4px}
+.pub-handle{color:var(--ink-soft);font-size:14px;font-weight:600}
+.pub-counts{display:flex;justify-content:center;gap:22px;margin-top:14px}
+.pub-counts span{font-size:13px;color:var(--ink-soft)}.pub-counts b{display:block;font-size:22px;font-weight:800;color:var(--ink)}
+.pub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(108px,1fr));gap:16px}
+.pub-book{border:none;background:none;padding:0;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:6px}
+.pub-cover{position:relative;aspect-ratio:2/3;border-radius:12px;overflow:hidden;display:grid;place-items:center;
+  box-shadow:0 6px 16px rgba(20,20,40,.12)}
+.pub-cover img{width:100%;height:100%;object-fit:cover}
+.pub-cover span{color:#fff;font-size:12px;font-weight:700;text-align:center;padding:8px;line-height:1.3}
+.pub-cover .shelf-dot{position:absolute;top:7px;right:7px;width:11px;height:11px;border-radius:50%;border:2px solid #fff}
+.pub-title{font-size:12.5px;font-weight:600;line-height:1.35;color:var(--ink)}
+.pub-empty{text-align:center;color:var(--ink-soft);padding:30px}
+.pub-foot{margin-top:34px;text-align:center}
+.pub-cta{border:1.5px solid var(--primary);background:#fff;color:var(--primary);border-radius:13px;padding:13px 20px;
+  font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer}
+.pub-modal{position:fixed;inset:0;background:rgba(20,18,40,.55);z-index:60;display:flex;align-items:center;justify-content:center;padding:20px}
+.pub-modal-card{position:relative;background:var(--card);border-radius:20px;padding:24px;max-width:420px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.3)}
+.pub-modal-card h3{margin:0 30px 4px 0;font-size:19px}
+.pub-modal-sub{margin:0 0 10px;color:var(--ink-soft);font-size:14px}
+.pub-review{margin:14px 0 0;font-size:14.5px;line-height:1.6;white-space:pre-wrap;color:var(--ink)}
+.pub-x{position:absolute;top:14px;right:14px;border:none;background:var(--bg);color:var(--ink-soft);width:34px;height:34px;border-radius:50%;display:grid;place-items:center;cursor:pointer}
 
 /* Year in Books */
 .yib{background:linear-gradient(150deg,#6D5BFF,#5B4BF5);color:#fff;border-radius:20px;padding:18px 18px 20px;
