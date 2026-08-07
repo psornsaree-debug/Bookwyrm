@@ -3,11 +3,11 @@ import {
   Camera, Plus, Search, X, Check, BookOpen, Trash2, Loader2,
   Library, Sparkles, AlertTriangle, ChevronRight, Pencil, BookMarked,
   Cloud, Download, Upload, ClipboardCopy, CheckCircle2, BarChart3, LayoutGrid, PawPrint,
-  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags, ArrowUpDown, Star, CheckSquare, CalendarDays, Share2,
+  Fingerprint, LogOut, UserPlus, Lock, ArrowLeft, LayoutDashboard, Tags, ArrowUpDown, Star, CheckSquare, CalendarDays, Share2, Mail,
 } from "lucide-react";
-import { auth, db } from "./firebase";
+import { auth, db, googleProvider } from "./firebase";
 import {
-  onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail,
+  onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, sendPasswordResetEmail, signInWithPopup,
 } from "firebase/auth";
 import { collection, doc, onSnapshot, setDoc, deleteDoc, getDoc, getDocs } from "firebase/firestore";
 
@@ -178,6 +178,33 @@ async function bioVerify(credId) {
   return true;
 }
 
+function PixelDragon({ size = 220 }) {
+  const P = { o: "#E8703A", D: "#34517E", d: "#5B7EB2", b: "#F2E3C4", e: "#1E2236", w: "#FFFFFF", k: "#EAD9AF", r: "#C6532E" };
+  const rows = [
+    "......oo........",
+    ".....oDDo.......",
+    "....oDDDDo......",
+    "...DDDDDDDD.....",
+    "..DDddddddDD....",
+    "..DdddddddDD.oo.",
+    "..DdweddddD.ooo.",
+    "..DddddddDD.ooo.",
+    "..DdbbbbddD.oo..",
+    "...DbbbbbdDD....",
+    "...DbbbbbbdD....",
+    "...DDbbbbdDD....",
+    "....DDDDDDD.....",
+    "..kkkkkkkkkk....",
+    ".rkkkkkkkkkkr...",
+    ".rrrrrrrrrrrr...",
+  ];
+  const rects = [];
+  rows.forEach((row, y) => { [...row].forEach((c, x) => { if (P[c]) rects.push(<rect key={x + "-" + y} x={x} y={y} width="1.02" height="1.02" fill={P[c]} />); }); });
+  return (
+    <svg className="pixdragon" width={size} height={size} viewBox="0 0 16 16" shapeRendering="crispEdges" xmlns="http://www.w3.org/2000/svg">{rects}</svg>
+  );
+}
+
 function AuthScreen() {
   const [mode, setMode] = useState("in"); // "in" = sign in, "up" = sign up
   const [email, setEmail] = useState("");
@@ -224,28 +251,67 @@ function AuthScreen() {
     } finally { setBusy(false); }
   }
 
+  async function google() {
+    setErr(""); setOk(""); setBusy(true);
+    try { await signInWithPopup(auth, googleProvider); }
+    catch (e) {
+      const m = (e && e.code) || "";
+      setErr(m.includes("popup-closed") || m.includes("cancelled-popup") ? "" :
+        m.includes("popup-blocked") ? "เบราว์เซอร์บล็อกป๊อปอัป — อนุญาตแล้วลองใหม่" :
+        m.includes("network") ? "ต่ออินเทอร์เน็ตไม่ได้" : "เข้าสู่ระบบด้วย Google ไม่สำเร็จ");
+    } finally { setBusy(false); }
+  }
+
   return (
-    <div className="login">
-      <div className="login-card">
-        <div className="login-logo"><BookMarked size={22} /> Scale &amp; Scroll</div>
-        <div className="login-sub">{mode === "up" ? "สร้างบัญชีเพื่อซิงก์ข้อมูลข้ามทุกเครื่อง" : "เข้าสู่ระบบเพื่อเปิดชั้นหนังสือของคุณ"}</div>
-        <input className="login-input" type="email" value={email} placeholder="อีเมล" onChange={(e) => { setEmail(e.target.value); setErr(""); setOk(""); }} />
-        <input className="login-input" type="password" value={pw} placeholder="รหัสผ่าน (อย่างน้อย 6 ตัว)"
-          onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
-        {err && <p className="hint" style={{ color: "var(--amber)", margin: "-4px 0 12px" }}>{err}</p>}
-        {ok && <p className="hint" style={{ color: "var(--green)", margin: "-4px 0 12px" }}>{ok}</p>}
-        <button className="btn-primary big" disabled={busy} onClick={submit}>
-          {busy ? <Loader2 className="spin" size={18} /> : <Check size={18} />}
-          {mode === "up" ? "สมัครและเข้าใช้งาน" : "เข้าสู่ระบบ"}
-        </button>
-        {mode === "in" && (
-          <button className="login-text-btn" onClick={forgot} disabled={busy}>ลืมรหัสผ่าน?</button>
-        )}
-        <button className="login-addbtn" style={{ marginTop: 12 }} onClick={() => { setMode((m) => (m === "up" ? "in" : "up")); setErr(""); setOk(""); }}>
-          {mode === "up" ? "มีบัญชีอยู่แล้ว? เข้าสู่ระบบ" : "ยังไม่มีบัญชี? สมัครใหม่"}
-        </button>
+    <div className="login2">
+      <div className="login2-wrap">
+        <div className="login2-left">
+          <h1 className="login2-h">{mode === "up" ? "Join the\nadventure!" : "Welcome\nback!"}</h1>
+          <p className="login2-sub">
+            {mode === "up" ? "สร้างบัญชีเพื่อเริ่มจัดการกองดองกับ " : "จัดการคลังหนังสือและกองดองของคุณกับ "}
+            <b>Scale &amp; Scroll</b>
+          </p>
+
+          <div className="login2-field">
+            <Mail size={18} />
+            <input type="email" value={email} placeholder="อีเมล" onChange={(e) => { setEmail(e.target.value); setErr(""); setOk(""); }} />
+          </div>
+          <div className="login2-field">
+            <Lock size={18} />
+            <input type="password" value={pw} placeholder="รหัสผ่าน" onChange={(e) => setPw(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+          </div>
+
+          {mode === "in" && <button className="login2-forgot" onClick={forgot} disabled={busy}>Forgot Password?</button>}
+          {err && <p className="login2-err">{err}</p>}
+          {ok && <p className="login2-ok">{ok}</p>}
+
+          <button className="login2-btn" disabled={busy} onClick={submit}>
+            {busy ? <Loader2 className="spin" size={16} /> : null}
+            {mode === "up" ? "SIGN UP" : "LOGIN"}
+          </button>
+
+          <div className="login2-or">or continue with</div>
+          <div className="login2-social">
+            <button className="social-btn" onClick={google} disabled={busy} aria-label="Google" title="เข้าสู่ระบบด้วย Google">
+              <svg width="22" height="22" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.6 30.2 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.8 6.1C12.3 13.3 17.6 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.5 3-2.2 5.5-4.7 7.2l7.3 5.7C43.6 37.9 46.5 31.8 46.5 24.5z"/><path fill="#FBBC05" d="M10.4 28.3c-.5-1.5-.8-3-.8-4.8s.3-3.3.8-4.8l-7.8-6.1C.9 15.9 0 19.8 0 23.5s.9 7.6 2.6 10.9l7.8-6.1z"/><path fill="#34A853" d="M24 47c6.2 0 11.5-2 15.3-5.6l-7.3-5.7c-2 1.4-4.7 2.3-8 2.3-6.4 0-11.7-3.8-13.6-9.3l-7.8 6.1C6.5 42.6 14.6 47 24 47z"/></svg>
+            </button>
+          </div>
+
+          <div className="login2-foot">
+            {mode === "up" ? "มีบัญชีอยู่แล้ว? " : "ยังไม่มีบัญชี? "}
+            <button onClick={() => { setMode((m) => (m === "up" ? "in" : "up")); setErr(""); setOk(""); }}>
+              {mode === "up" ? "เข้าสู่ระบบ" : "สมัครเลย"}
+            </button>
+          </div>
+          <div className="login-credit" style={{ marginTop: 20 }}>Designed by <b>TQx</b></div>
+        </div>
+
+        <div className="login2-right">
+          <PixelDragon size={230} />
+          <div className="login2-tag">Track your books.<br />Fuel your adventure.</div>
+          <div className="login2-brand">scale<b>and</b>scroll</div>
+        </div>
       </div>
-      <div className="login-credit">Designed by <b>TQx</b></div>
     </div>
   );
 }
@@ -1427,9 +1493,14 @@ function AddSheet({ books, onClose, onSave, cats }) {
     if (!file) return;
     setScanErr(""); setScanning(true);
     try {
-      const big = await resizeImage(file, 768, 0.7);     // for AI
-      const thumb = await resizeImage(file, 150, 0.5);   // stored
+      const thumb = await resizeImage(file, 150, 0.5);   // stored as cover
       set("cover", thumb.dataUrl);
+      if (!getApiKey()) {                                 // no AI key → just keep the cover, fill fields manually
+        setScanErr("บันทึกรูปปกแล้ว — กรอกข้อมูลเอง (หรือใส่ API key ในตั้งค่า เพื่อให้ AI อ่านปกให้อัตโนมัติ)");
+        setScanning(false);
+        return;
+      }
+      const big = await resizeImage(file, 768, 0.7);      // for AI
       const text = await callClaude({
         model: "claude-sonnet-4-6",
         max_tokens: 1000,
@@ -1490,7 +1561,7 @@ function AddSheet({ books, onClose, onSave, cats }) {
         ) : f.cover ? (
           <><img className="photo-prev" src={f.cover} alt="" /> <span><Sparkles size={15} /> แตะเพื่อถ่ายใหม่</span></>
         ) : (
-          <><Camera size={22} /><span>ถ่ายรูปปก แล้วให้ AI กรอกให้</span></>
+          <><Camera size={22} /><span>{getApiKey() ? "ถ่ายรูปปก แล้วให้ AI กรอกให้" : "ถ่าย/เลือกรูปปกหนังสือ"}</span></>
         )}
       </button>
       <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
@@ -1768,6 +1839,7 @@ function DataSheet({ books, onClose, onImport, flash, name, onSaveName, apiKey, 
         </div>
       )}
 
+      <a className="policy-link" href="./privacy.html" target="_blank" rel="noreferrer">นโยบายความเป็นส่วนตัว</a>
       <div className="credit">Designed by <b>TQx</b></div>
     </Sheet>
   );
@@ -1807,14 +1879,16 @@ const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&display=swap');
 
 :root{
-  --bg:#F4F4F7; --card:#FFFFFF; --ink:#17171C; --ink-soft:#76767F;
-  --line:#ECECF0;
-  --green:#5B4BF5; --green-soft:#ECEAFF;        /* primary / reading */
-  --amber:#FF6B4A; --amber-soft:#FFE9E3;        /* ดอง / warnings */
-  --slate:#10B981; --slate-soft:#DCF5EC;        /* done */
+  --bg:#F7E8D5; --card:#FFF7EC; --ink:#2E3350; --ink-soft:#8A8299;
+  --line:#E6D5BC;
+  --green:#E86A33; --green-soft:#FBE3D3;        /* primary / reading (orange) */
+  --amber:#E0A02E; --amber-soft:#F6E7C4;        /* ดอง (gold) */
+  --slate:#4C9E7A; --slate-soft:#D8EFE2;        /* done (green) */
+  --primary:#E86A33; --coral:#E86A33;
   --sans:'Anuphan',system-ui,-apple-system,sans-serif;
-  --sh:0 2px 12px rgba(20,20,40,.05),0 1px 3px rgba(20,20,40,.04);
-  --sh-lift:0 10px 30px rgba(20,20,40,.10);
+  --pixel:'Press Start 2P','Anuphan',monospace;
+  --sh:3px 3px 0 rgba(46,51,80,.10);
+  --sh-lift:5px 6px 0 rgba(46,51,80,.14);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 .app{font-family:var(--sans);color:var(--ink);background:var(--bg);
@@ -2220,6 +2294,8 @@ input{font-family:var(--sans)}
   margin-top:14px;padding-top:4px}
 .credit b{color:var(--primary);font-weight:700;letter-spacing:.5px}
 .side-foot .credit{margin-top:10px;text-align:left;padding-left:4px}
+.policy-link{display:block;text-align:center;margin-top:20px;font-size:12.5px;color:var(--ink-soft);
+  text-decoration:underline;text-underline-offset:2px}
 
 /* star rating (supports halves) */
 .stars{display:inline-flex;align-items:center;gap:3px;color:#E5B800}
@@ -2379,4 +2455,89 @@ input{font-family:var(--sans)}
   background:var(--ink);color:#fff;padding:13px 22px;border-radius:99px;font-size:14px;font-weight:500;
   box-shadow:0 10px 30px rgba(0,0,0,.28);animation:fade .2s;max-width:90%;text-align:center}
 .toast.warn{background:var(--amber)}
+
+/* ===================== RETRO / PIXEL THEME LAYER ===================== */
+body,.app,.root{background:var(--bg)}
+.desktop .dshell,.dmain,.sidebar{background:var(--bg)}
+
+/* pixel font only where text is English/numbers (Thai has no pixel glyphs) */
+.login-logo,.side-brand{font-family:var(--pixel);font-size:15px;letter-spacing:0;line-height:1.5}
+.side-brand{font-size:13px}
+.stat-n,.yib-n,.value-n,.pub-counts b,.stars-num{font-family:var(--pixel);letter-spacing:0}
+.stat-n{font-size:19px}.yib-n{font-size:20px}.value-n{font-size:15px}.pub-counts b{font-size:17px}
+
+/* chunky retro borders + hard shadows + squared corners */
+.card .cover,.shelf-cover,.pub-cover,.d-cover{border:2px solid var(--ink);border-radius:8px;box-shadow:var(--sh)}
+.stat-card,.value-box,.share-toggle,.cat-row,.show-item,.data-note{border:2px solid var(--ink)!important;border-radius:10px;box-shadow:var(--sh)}
+.search,.login-input,.cat-input,.review-box,.price-edit input,.link-box input{
+  border:2px solid var(--ink)!important;border-radius:8px;box-shadow:none}
+.pet,.yib{border:2.5px solid var(--ink);border-radius:14px}
+.yib{box-shadow:5px 5px 0 rgba(46,51,80,.22)}
+
+/* buttons: chunky with hard shadow + press */
+.btn-primary,.side-add,.tab-add{border:2px solid var(--ink)!important;border-radius:10px;box-shadow:3px 3px 0 var(--ink);
+  transition:transform .06s,box-shadow .06s}
+.btn-primary:active,.side-add:active,.tab-add:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
+.btn-primary{background:var(--primary);color:#fff}
+.tab-add{background:var(--primary)}
+
+/* chips squared */
+.fchip,.cat-chip,.manage-btn,.select-btn,.sort-ctl,.filter-tag{border-radius:8px}
+.fchip,.cat-chip{border:2px solid var(--ink)}
+.fchip.on,.cat-chip.on{background:var(--primary);border-color:var(--ink);color:#fff}
+
+/* sidebar nav active = block with border */
+.side-item{border:2px solid transparent;border-radius:10px}
+.side-item.on{background:var(--green-soft);color:var(--ink);border:2px solid var(--ink)}
+
+/* badges / dots squared */
+.badge{border-radius:6px}
+.pet-stage{border-radius:6px;border:2px solid var(--ink)}
+
+/* sheets: retro top edge */
+.sheet{border-top:3px solid var(--ink)}
+.dmain-head h1{font-family:var(--sans);font-weight:700}
+
+/* ---- login two-column layout ---- */
+.login2{min-height:100dvh;display:flex;background:var(--bg);padding:16px}
+.login2-wrap{margin:auto;display:flex;width:min(940px,96vw);min-height:min(600px,90vh);border:3px solid var(--ink);
+  border-radius:22px;overflow:hidden;box-shadow:8px 10px 0 rgba(46,51,80,.18);background:var(--card)}
+.login2-left{flex:1;padding:44px 40px;display:flex;flex-direction:column;justify-content:center;min-width:0}
+.login2-right{flex:1;background:linear-gradient(180deg,#F4B183 0%,#C98A63 45%,#3E4670 100%);
+  padding:34px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px}
+.login2-h{font-family:var(--pixel);font-size:25px;line-height:1.4;color:var(--ink);margin:0 0 16px}
+.login2-sub{font-size:15px;line-height:1.6;color:var(--ink-soft);margin:0 0 26px}
+.login2-sub b{color:var(--primary)}
+.login2-field{display:flex;align-items:center;gap:10px;border:2px solid var(--ink);border-radius:10px;
+  padding:13px 15px;margin-bottom:14px;background:#fff}
+.login2-field svg{color:var(--ink-soft);flex:none}
+.login2-field input{flex:1;border:none;outline:none;background:none;font-family:var(--sans);font-size:15px;color:var(--ink)}
+.login2-forgot{display:block;margin:0 0 18px auto;background:none;border:none;color:var(--primary);
+  font-family:var(--sans);font-weight:700;font-size:13.5px;cursor:pointer}
+.login2-btn{width:100%;background:var(--primary);color:#fff;border:2px solid var(--ink);border-radius:10px;
+  padding:15px;font-family:var(--pixel);font-size:14px;cursor:pointer;box-shadow:3px 3px 0 var(--ink);
+  transition:transform .06s,box-shadow .06s;display:flex;align-items:center;justify-content:center;gap:8px}
+.login2-btn:active{transform:translate(3px,3px);box-shadow:0 0 0 var(--ink)}
+.login2-btn:disabled{opacity:.6}
+.login2-or{display:flex;align-items:center;gap:12px;color:var(--ink-soft);font-size:13px;margin:22px 0 16px}
+.login2-or::before,.login2-or::after{content:"";flex:1;height:2px;background:var(--line)}
+.login2-social{display:flex;gap:12px;justify-content:center}
+.social-btn{width:58px;height:52px;border:2px solid var(--ink);border-radius:10px;background:#fff;display:grid;
+  place-items:center;cursor:pointer;box-shadow:2px 2px 0 var(--ink);transition:transform .06s,box-shadow .06s}
+.social-btn:active{transform:translate(2px,2px);box-shadow:0 0 0 var(--ink)}
+.social-btn.dim{opacity:.4;cursor:not-allowed}
+.login2-foot{margin-top:26px;text-align:center;font-size:14px;color:var(--ink-soft)}
+.login2-foot button{background:none;border:none;color:var(--primary);font-family:var(--sans);font-weight:700;font-size:14px;cursor:pointer}
+.login2-err{color:#D9463A;font-size:13px;margin:-4px 0 12px}
+.login2-ok{color:var(--slate);font-size:13px;margin:-4px 0 12px}
+.login2-tag{font-family:var(--pixel);font-size:13px;color:#fff;text-align:center;line-height:1.8;text-shadow:2px 2px 0 rgba(46,51,80,.45)}
+.login2-brand{font-family:var(--pixel);font-size:14px;color:#fff;letter-spacing:0;text-shadow:2px 2px 0 rgba(46,51,80,.45)}
+.login2-brand b{color:#FFD658;font-weight:400}
+.pixdragon{filter:drop-shadow(4px 4px 0 rgba(46,51,80,.25));image-rendering:pixelated}
+@media(max-width:760px){
+  .login2-right{display:none}
+  .login2-wrap{width:96vw;min-height:auto;flex-direction:column}
+  .login2-left{padding:34px 26px}
+  .login2-h{font-size:21px}
+}
 `;
