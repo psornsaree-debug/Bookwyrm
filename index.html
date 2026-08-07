@@ -3,25 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#5B4BF5" />
-    <title>Bookwyrm — กองดองของฉัน</title>
-
-    <!-- icons / add to home screen -->
+    <meta name="theme-color" content="#E86A33" />
+    <title>Scale &amp; Scroll — กองดองของฉัน</title>
     <link rel="icon" type="image/png" href="./favicon.png" />
     <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Bookwyrm" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-
+    <meta name="apple-mobile-web-app-title" content="Scale &amp; Scroll" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Anuphan:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
-      html, body { margin: 0; padding: 0; background: #F4F4F7; }
+      html, body { margin: 0; padding: 0; background: #F7E8D5; }
       #root { min-height: 100dvh; }
     </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", function () { navigator.serviceWorker.register("./sw.js").catch(function(){}); });
+      }
+    </script>
   </body>
 </html>
